@@ -1,0 +1,14 @@
+{
+  "name": "echoes",
+  "private": true,
+  "scripts": {
+    "dev:api": "pnpm --filter @echoes/api dev",
+    "dev:worker": "pnpm --filter @echoes/worker dev",
+    "dev:mobile": "pnpm --filter @echoes/mobile start",
+    "cli": "pnpm --filter @echoes/worker cli",
+    "migrate": "pnpm --filter @echoes/worker cli migrate",
+    "ingest": "pnpm --filter @echoes/worker cli",
+    "typecheck": "pnpm -r --parallel typecheck",
+    "test": "pnpm -r test"
+  }
+}
