@@ -12,6 +12,8 @@
  *   pnpm cli echo:recompose --photo <uuid>     (re-run compositing from saved frames, no GenAI cost)
  *   pnpm cli queue:drain                       (drop waiting jobs, e.g. before a pipeline bump)
  *   pnpm cli walk:generate --photo <uuid> [--frames 3] [--length 10] [--subject-distance 28] [--from-frame 2]  (PAID: one image per regenerated frame)
+ *   pnpm cli demo:export [--out file] [--with-debug]   (photos, panoramas, walks + media → tar.gz, no GenAI)
+ *   pnpm cli demo:import [--file file]                 (restore that bundle on another machine)
  *   pnpm cli budget                            (paid image generations used today / daily limit)
  *   pnpm cli smoke:gemini
  */
@@ -24,6 +26,7 @@ import {
   editImage,
   env,
   ensureBucket,
+  exportDemo,
   GeminiBillingError,
   generateWalk,
   geocodeMonuments,
@@ -31,6 +34,7 @@ import {
   generateText,
   getEchoForPhoto,
   imageBudget,
+  importDemo,
   getEchoQueue,
   harvestCommons,
   linkPhotosToMonuments,
@@ -55,12 +59,17 @@ const { positionals, values } = parseArgs({
     length: { type: 'string' },
     'subject-distance': { type: 'string' },
     'from-frame': { type: 'string' },
+    out: { type: 'string' },
+    file: { type: 'string' },
+    'with-debug': { type: 'boolean', default: false },
     force: { type: 'boolean', default: false },
     sync: { type: 'boolean', default: false },
   },
 });
 
 const city = values.city ?? env.TARGET_CITIES[0]!;
+/** Default demo bundle location (git-ignored; share it as a GitHub Release asset). */
+const DEMO_FILE = fileURLToPath(new URL('../../../data/demo/echoes-demo.tar.gz', import.meta.url));
 const num = (v: string | undefined) => (v ? Number(v) : undefined);
 
 async function generate(photoId: string) {
@@ -105,6 +114,8 @@ const commands: Record<string, () => Promise<unknown>> = {
     log.info({ budget: await imageBudget() }, 'budget after walk');
     return result;
   },
+  'demo:export': () => exportDemo(values.out ?? DEMO_FILE, { withDebug: values['with-debug'] }),
+  'demo:import': () => importDemo(values.file ?? DEMO_FILE),
   'echo:pregen': async () => {
     // Paid: only photos without any finished panorama (an older pipeline version counts as done).
     const rows = await sql<{ id: string }[]>`
