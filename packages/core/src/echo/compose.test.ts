@@ -1,6 +1,6 @@
 import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
-import { matchTone, repastePhoto } from './compose';
+import { alignToPano, matchTone, repastePhoto } from './compose';
 
 const solid = (w: number, h: number, c: { r: number; g: number; b: number }) =>
   sharp({ create: { width: w, height: h, channels: 3, background: c } }).png().toBuffer();
@@ -39,5 +39,23 @@ describe('repastePhoto', () => {
     expect([data[0], data[1], data[2]]).toEqual([255, 0, 0]);
     const outside = await sharp(out).extract({ left: 10, top: 10, width: 1, height: 1 }).raw().toBuffer();
     expect([outside[0], outside[1], outside[2]]).toEqual([0, 0, 255]);
+  });
+});
+
+describe('alignToPano', () => {
+  it('finds where the model drew the photo (shifted and scaled)', async () => {
+    // A textured "photo" so correlation has something to lock onto.
+    const svg = `<svg width="200" height="140"><rect width="200" height="140" fill="#777"/><rect x="20" y="30" width="50" height="90" fill="#eee"/><circle cx="140" cy="60" r="35" fill="#222"/><rect x="90" y="110" width="100" height="20" fill="#bbb"/></svg>`;
+    const photo = await sharp(Buffer.from(svg)).png().toBuffer();
+    const drawn = await sharp(photo).resize(210, 147).png().toBuffer(); // model drew it 5% bigger…
+    const pano = await sharp({ create: { width: 800, height: 400, channels: 3, background: { r: 128, g: 128, b: 128 } } })
+      .composite([{ input: drawn, left: 318, top: 118 }]) // …and shifted it by (+18, +18)
+      .png()
+      .toBuffer();
+    const { rect, score } = await alignToPano(pano, photo, { x: 300, y: 100, w: 200, h: 140 });
+    expect(score).toBeGreaterThan(0.9);
+    expect(Math.abs(rect.x - 318)).toBeLessThanOrEqual(8);
+    expect(Math.abs(rect.y - 118)).toBeLessThanOrEqual(8);
+    expect(Math.abs(rect.w - 210)).toBeLessThanOrEqual(10);
   });
 });

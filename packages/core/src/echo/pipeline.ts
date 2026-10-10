@@ -7,7 +7,7 @@ import { getEcho, updateEcho } from '../repos/echoes';
 import { getMonument } from '../repos/monuments';
 import { getPhotoRow, type PhotoRow } from '../repos/photos';
 import { getObjectBuffer, putObject } from '../storage';
-import { buildCanvas, edgeColors, grayBand, matchTone, mergeBand, normalizeToStrip, repastePhoto, rollX, toJpeg } from './compose';
+import { alignToPano, buildCanvas, edgeColors, grayBand, matchTone, mergeBand, normalizeToStrip, repastePhoto, rollX, toJpeg } from './compose';
 import { contextLayout, contextRectInStrip, mapRectInto, type StripSpec } from './geometry';
 import { contextPrompt, narrationPrompt, outpaintPrompt, seamPrompt } from './prompts';
 
@@ -96,9 +96,13 @@ export async function generatePanorama(
 
   await onStep('compose');
   pano = await matchTone(pano, image);
-  pano = await repastePhoto(pano, image, rect, Math.round(rect.w * 0.06));
+  // Snap the archival frame onto the model's rendition of it (only if the match is convincing).
+  const aligned = await alignToPano(pano, image, rect);
+  const finalRect = aligned.score > 0.45 ? aligned.rect : rect;
+  log.info({ photoId: photo.id, score: Number(aligned.score.toFixed(3)), from: rect, to: finalRect }, 'archival frame alignment');
+  pano = await repastePhoto(pano, image, finalRect, Math.round(finalRect.w * 0.06));
   const { sky, ground } = await edgeColors(pano);
-  return { pano, photoRect: rect, sky, ground };
+  return { pano, photoRect: finalRect, sky, ground };
 }
 
 /** Worker entry point: runs one echo end-to-end and persists every step for the app's progress UI. */

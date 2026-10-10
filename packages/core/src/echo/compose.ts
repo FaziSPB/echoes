@@ -98,6 +98,82 @@ export async function repastePhoto(pano: Buffer, photo: Buffer, rect: Rect, feat
     .toBuffer();
 }
 
+async function grayRaw(img: Buffer | ReturnType<typeof sharp>, width: number, height: number): Promise<Float32Array> {
+  const s = Buffer.isBuffer(img) ? sharp(img) : img;
+  const raw = await s.resize(width, height, { fit: 'fill' }).greyscale().raw().toBuffer();
+  return Float32Array.from(raw);
+}
+
+/**
+ * The model re-renders the whole canvas and may shift/scale the scene by a few percent, which makes the re-pasted
+ * archival frame ghost. Find where the scene "expects" the photo (multi-scale normalised cross-correlation on a
+ * downscaled grayscale) and return the corrected rect. Archival pixels stay untouched – only their placement moves.
+ */
+export async function alignToPano(pano: Buffer, photo: Buffer, rect: Rect, opts = { margin: 0.15, scales: [0.88, 0.92, 0.96, 1, 1.04, 1.08, 1.12], factor: 0.25 }): Promise<{ rect: Rect; score: number }> {
+  const meta = await sharp(pano).metadata();
+  const f = opts.factor;
+  const mx = Math.round(rect.w * opts.margin);
+  const my = Math.round(rect.h * opts.margin);
+  const rx = Math.max(0, rect.x - mx);
+  const ry = Math.max(0, rect.y - my);
+  const rw = Math.min(meta.width! - rx, rect.w + 2 * mx);
+  const rh = Math.min(meta.height! - ry, rect.h + 2 * my);
+  const RW = Math.round(rw * f);
+  const RH = Math.round(rh * f);
+  const region = await grayRaw(sharp(pano).extract({ left: rx, top: ry, width: rw, height: rh }), RW, RH);
+
+  // Summed-area tables give the mean/variance of every candidate window in O(1).
+  const sat = new Float64Array((RW + 1) * (RH + 1));
+  const sat2 = new Float64Array((RW + 1) * (RH + 1));
+  for (let y = 0; y < RH; y++) {
+    let row = 0;
+    let row2 = 0;
+    for (let x = 0; x < RW; x++) {
+      const v = region[y * RW + x]!;
+      row += v;
+      row2 += v * v;
+      sat[(y + 1) * (RW + 1) + x + 1] = sat[y * (RW + 1) + x + 1]! + row;
+      sat2[(y + 1) * (RW + 1) + x + 1] = sat2[y * (RW + 1) + x + 1]! + row2;
+    }
+  }
+  const boxSum = (t: Float64Array, x: number, y: number, w: number, h: number) =>
+    t[(y + h) * (RW + 1) + x + w]! - t[y * (RW + 1) + x + w]! - t[(y + h) * (RW + 1) + x]! + t[y * (RW + 1) + x]!;
+
+  let best = { score: -1, x: rect.x, y: rect.y, w: rect.w, h: rect.h };
+  for (const s of opts.scales) {
+    const TW = Math.round(rect.w * s * f);
+    const TH = Math.round(rect.h * s * f);
+    if (TW >= RW || TH >= RH || TW < 8 || TH < 8) continue;
+    const tpl = await grayRaw(photo, TW, TH);
+    const n = TW * TH;
+    let mean = 0;
+    for (const v of tpl) mean += v;
+    mean /= n;
+    let norm = 0;
+    for (let i = 0; i < n; i++) {
+      tpl[i] = tpl[i]! - mean;
+      norm += tpl[i]! * tpl[i]!;
+    }
+    norm = Math.sqrt(norm) || 1;
+    for (let oy = 0; oy + TH <= RH; oy++) {
+      for (let ox = 0; ox + TW <= RW; ox++) {
+        const sum = boxSum(sat, ox, oy, TW, TH);
+        const varR = boxSum(sat2, ox, oy, TW, TH) - (sum * sum) / n;
+        if (varR <= 1e-6) continue;
+        let dot = 0;
+        for (let ty = 0; ty < TH; ty++) {
+          const rOff = (oy + ty) * RW + ox;
+          const tOff = ty * TW;
+          for (let tx = 0; tx < TW; tx++) dot += tpl[tOff + tx]! * region[rOff + tx]!;
+        }
+        const score = dot / (norm * Math.sqrt(varR));
+        if (score > best.score) best = { score, x: rx + ox / f, y: ry + oy / f, w: TW / f, h: TH / f };
+      }
+    }
+  }
+  return { rect: { x: Math.round(best.x), y: Math.round(best.y), w: Math.round(best.w), h: Math.round(best.h) }, score: best.score };
+}
+
 /** Rotate a 360° strip horizontally by `dx` pixels (wraps around). */
 export async function rollX(img: Buffer, dx: number): Promise<Buffer> {
   const meta = await sharp(img).metadata();
