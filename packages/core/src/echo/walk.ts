@@ -122,7 +122,13 @@ export async function generateWalk(photoId: string, opts: WalkOptions = {}) {
     await updateWalk(walk.id, { status: 'done', frames: out });
     return { walkId: walk.id, frames: out.length, subjectDistanceM: D };
   } catch (err) {
-    await updateWalk(walk.id, { status: 'failed', error: String(err instanceof Error ? err.message : err).slice(0, 500) });
+    const error = String(err instanceof Error ? err.message : err).slice(0, 500);
+    if (existing?.status === 'done') {
+      // A failed partial regeneration must not take a working walk offline – keep the previous frames.
+      await updateWalk(walk.id, { status: 'done', frames: existing.frames, error: `regeneration failed: ${error}` });
+    } else {
+      await updateWalk(walk.id, { status: 'failed', error });
+    }
     throw err;
   }
 }
