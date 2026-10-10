@@ -1,23 +1,33 @@
 {
   "expo": {
-    "name": "mobile",
-    "slug": "mobile",
+    "name": "Echoes",
+    "slug": "echoes",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "mobile",
-    "userInterfaceStyle": "automatic",
+    "scheme": "echoes",
+    "userInterfaceStyle": "light",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Echoes nak\u0142ada archiwalne zdj\u0119cia na obraz z kamery.",
+        "NSLocationWhenInUseUsageDescription": "Echoes pokazuje archiwalne zdj\u0119cia w Twojej okolicy i ustawia je zgodnie z kierunkiem patrzenia.",
+        "NSMotionUsageDescription": "Echoes u\u017cywa \u017cyroskopu, aby panorama porusza\u0142a si\u0119 razem z telefonem."
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#F3EADB",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION"
+      ]
     },
     "web": {
       "output": "static",
@@ -28,9 +38,21 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
+          "backgroundColor": "#F3EADB",
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Echoes nak\u0142ada archiwalne zdj\u0119cia na obraz z kamery."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Echoes pokazuje archiwalne zdj\u0119cia w Twojej okolicy."
         }
       ]
     ],
