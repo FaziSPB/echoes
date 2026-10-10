@@ -20,7 +20,7 @@ const dayKey = () => `echoes:genai:images:${new Date().toLocaleDateString('sv-SE
 
 /**
  * Atomically reserves one paid image generation for today, before the request is sent.
- * Attempts are counted even if the request then fails – we would rather under-spend than overshoot.
+ * Attempts that time out stay counted (the image may still be billed) – we would rather under-spend than overshoot.
  */
 export async function reserveImageGeneration(): Promise<void> {
   const key = dayKey();
@@ -30,6 +30,11 @@ export async function reserveImageGeneration(): Promise<void> {
     await client().decr(key);
     throw new BudgetExceededError(used - 1, env.ECHO_DAILY_IMAGE_LIMIT);
   }
+}
+
+/** Gives back a reservation whose request the API rejected (HTTP 4xx/5xx) before producing an image. */
+export async function releaseImageGeneration(): Promise<void> {
+  await client().decr(dayKey());
 }
 
 export async function imageBudget(): Promise<{ used: number; limit: number; remaining: number }> {

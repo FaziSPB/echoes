@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { z } from 'zod';
-import { reserveImageGeneration } from '../budget';
+import { releaseImageGeneration, reserveImageGeneration } from '../budget';
 import { env } from '../env';
 
 let client: GoogleGenAI | undefined;
@@ -17,6 +17,20 @@ const TEXT_REQUEST = { timeout: 60_000, maxRetries: 2 };
 export type AspectRatio = '1:1' | '16:9' | '21:9' | '4:1' | '8:1' | '3:2' | '4:3';
 export type ImageSize = '1K' | '2K' | '4K';
 
+/** Gemini answered 402 Payment Required: the key's billing account cannot pay. Never worth retrying. */
+export class GeminiBillingError extends Error {
+  constructor(cause: unknown) {
+    super('Gemini odrzucił płatne żądanie (402 Payment Required) – sprawdź Billing w Google AI Studio.', { cause });
+    this.name = 'GeminiBillingError';
+  }
+}
+
+/** HTTP status of a request the API answered with an error; undefined for timeouts and connection errors. */
+function httpStatus(err: unknown): number | undefined {
+  const status = (err as { status?: unknown } | null)?.status;
+  return typeof status === 'number' && status >= 400 ? status : undefined;
+}
+
 /**
  * Image-to-image edit with Nano Banana via the Interactions API.
  * `images` are passed in order after the text prompt (first = canvas to edit, rest = references).
@@ -29,19 +43,26 @@ export async function editImage(opts: {
   model?: string;
 }): Promise<Buffer> {
   await reserveImageGeneration(); // throws BudgetExceededError before any money is spent
-  const interaction = await ai().interactions.create({
-    model: opts.model ?? env.GEMINI_IMAGE_MODEL,
-    input: [
-      { type: 'text', text: opts.prompt },
-      ...opts.images.map((img) => ({ type: 'image' as const, mime_type: img.mime, data: img.data.toString('base64') })),
-    ],
-    response_format: {
-      type: 'image',
-      mime_type: 'image/jpeg', // the only output type the Interactions API accepts for images
-      aspect_ratio: opts.aspectRatio,
-      image_size: opts.imageSize,
-    },
-  }, IMAGE_REQUEST);
+  const interaction = await ai()
+    .interactions.create({
+      model: opts.model ?? env.GEMINI_IMAGE_MODEL,
+      input: [
+        { type: 'text', text: opts.prompt },
+        ...opts.images.map((img) => ({ type: 'image' as const, mime_type: img.mime, data: img.data.toString('base64') })),
+      ],
+      response_format: {
+        type: 'image',
+        mime_type: 'image/jpeg', // the only output type the Interactions API accepts for images
+        aspect_ratio: opts.aspectRatio,
+        image_size: opts.imageSize,
+      },
+    }, IMAGE_REQUEST)
+    .catch(async (err: unknown) => {
+      const status = httpStatus(err);
+      // Rejected before any image was made (e.g. 402, 429, 500): the attempt cost nothing, so it must not eat the budget.
+      if (status !== undefined) await releaseImageGeneration();
+      throw status === 402 ? new GeminiBillingError(err) : err;
+    });
   const out = interaction.output_image;
   if (!out?.data) {
     throw new Error(`Gemini returned no image${interaction.output_text ? `: ${interaction.output_text.slice(0, 300)}` : ''}`);

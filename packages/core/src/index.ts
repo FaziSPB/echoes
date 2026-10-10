@@ -14,4 +14,4 @@ export * from './repos/walks';
 export * from './ingest/registry';
 export * from './ingest/commons';
 export * from './ingest/curated';
-export { listModels, editImage, generateText } from './clients/gemini';
+export { listModels, editImage, generateText, GeminiBillingError } from './clients/gemini';
