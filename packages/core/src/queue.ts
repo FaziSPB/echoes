@@ -14,9 +14,11 @@ export function redisConnection(): Redis {
 }
 
 let echoQueue: Queue<EchoJobData> | undefined;
+let echoQueueConnection: Redis | undefined;
 export function getEchoQueue(): Queue<EchoJobData> {
+  echoQueueConnection ??= redisConnection();
   echoQueue ??= new Queue<EchoJobData>(ECHO_QUEUE, {
-    connection: redisConnection(),
+    connection: echoQueueConnection,
     defaultJobOptions: {
       attempts: 3,
       backoff: { type: 'exponential', delay: 5_000 },
@@ -31,5 +33,8 @@ export function getEchoQueue(): Queue<EchoJobData> {
 export async function closeEchoQueue(): Promise<void> {
   if (!echoQueue) return;
   await echoQueue.close();
+  // BullMQ never closes a connection instance it was handed, so the CLI would hang on the open socket.
+  await echoQueueConnection?.quit();
   echoQueue = undefined;
+  echoQueueConnection = undefined;
 }
