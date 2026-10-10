@@ -154,7 +154,7 @@ try {
   const result = await cmd();
   if (result !== undefined) log.info({ result }, `${name} done`);
 } catch (err) {
-  if (err instanceof GeminiBillingError) log.error({ status: 402 }, `${name} failed: ${err.message}`);
+  if (err instanceof GeminiBillingError) log.error({ status: (err.cause as { status?: number }).status }, `${name} failed: ${err.message}`);
   else log.error({ err }, `${name} failed`);
   process.exitCode = 1;
 } finally {

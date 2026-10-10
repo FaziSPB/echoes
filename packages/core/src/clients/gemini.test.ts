@@ -42,6 +42,14 @@ describe('editImage budget reservation', () => {
     expect(release).toHaveBeenCalledOnce();
   });
 
+  it('reports billing on a 429 from a Free Tier project, but not on a plain rate limit', async () => {
+    create.mockRejectedValueOnce(Object.assign(apiError(429), { message: '429 Rate limit exceeded (limit: 0 requests per day on Free Tier).' }));
+    await expect(editImage(request)).rejects.toBeInstanceOf(GeminiBillingError);
+    create.mockRejectedValueOnce(Object.assign(apiError(429), { message: '429 Resource exhausted, retry in 20s.' }));
+    await expect(editImage(request)).rejects.not.toBeInstanceOf(GeminiBillingError);
+    expect(release).toHaveBeenCalledTimes(2);
+  });
+
   it('keeps the reservation on a timeout, which may still be billed', async () => {
     const err = Object.assign(new Error('Request timed out.'), { status: undefined });
     create.mockRejectedValue(err);

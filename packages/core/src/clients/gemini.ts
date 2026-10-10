@@ -17,10 +17,11 @@ const TEXT_REQUEST = { timeout: 60_000, maxRetries: 2 };
 export type AspectRatio = '1:1' | '16:9' | '21:9' | '4:1' | '8:1' | '3:2' | '4:3';
 export type ImageSize = '1K' | '2K' | '4K';
 
-/** Gemini answered 402 Payment Required: the key's billing account cannot pay. Never worth retrying. */
+/** Gemini refused to bill the key: 402 Payment Required, or 429 on a Free Tier project. Never worth retrying. */
 export class GeminiBillingError extends Error {
-  constructor(cause: unknown) {
-    super('Gemini odrzucił płatne żądanie (402 Payment Required) – sprawdź Billing w Google AI Studio.', { cause });
+  constructor(status: number, cause: unknown) {
+    const reason = status === 402 ? '402 Payment Required' : `${status}, klucz w projekcie na Free Tier`;
+    super(`Gemini odrzucił płatne żądanie (${reason}) – sprawdź Billing w Google AI Studio.`, { cause });
     this.name = 'GeminiBillingError';
   }
 }
@@ -61,7 +62,8 @@ export async function editImage(opts: {
       const status = httpStatus(err);
       // Rejected before any image was made (e.g. 402, 429, 500): the attempt cost nothing, so it must not eat the budget.
       if (status !== undefined) await releaseImageGeneration();
-      throw status === 402 ? new GeminiBillingError(err) : err;
+      const freeTier = status === 429 && /free tier/i.test(String((err as Error).message));
+      throw status === 402 || freeTier ? new GeminiBillingError(status, err) : err;
     });
   const out = interaction.output_image;
   if (!out?.data) {
