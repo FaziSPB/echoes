@@ -8,8 +8,8 @@ import { getMonument } from '../repos/monuments';
 import { getPhotoRow, type PhotoRow } from '../repos/photos';
 import { getObjectBuffer, putObject } from '../storage';
 import { buildCanvas, edgeColors, grayBand, matchTone, mergeBand, normalizeToStrip, repastePhoto, rollX, toJpeg } from './compose';
-import { photoRectInStrip, type StripSpec } from './geometry';
-import { narrationPrompt, outpaintPrompt, seamPrompt } from './prompts';
+import { contextLayout, contextRectInStrip, mapRectInto, type StripSpec } from './geometry';
+import { contextPrompt, narrationPrompt, outpaintPrompt, seamPrompt } from './prompts';
 
 /** 4:1 cylinder → 360° horizontally, 90° vertically. 4096 px is the safe max texture width on phones. */
 export const STRIP: StripSpec = { width: 4096, height: 1024 };
@@ -31,35 +31,47 @@ export type EchoArtifacts = {
   ground: string;
 };
 
-/** Pure image part of the pipeline (no DB) – also used by the CLI for quick experiments. */
+/** Context canvas for progressive outpainting (21:9). */
+const CONTEXT: StripSpec = { width: 2100, height: 900 };
+
+/**
+ * Pure image part of the pipeline (no DB).
+ * v2 = progressive outpainting: photo → ~2× wider context (21:9) → 360° strip (4:1) → seam heal → tone + repaste.
+ * Giving the model a seed that already fills a third of the strip keeps the scene at the photo's scale
+ * (v1 seeded the strip with the bare photo and the model tended to "zoom in" and redraw it bigger).
+ */
 export async function generatePanorama(
   photo: PhotoRow,
   image: Buffer,
-  prompts: { outpaint: string; seam: string },
+  prompts: { context: string; outpaint: string; seam: string },
   onStep: (step: 'outpaint' | 'seam' | 'compose') => Promise<void> = async () => {},
   debug: (name: string, img: Buffer) => Promise<void> = async () => {},
   /** Previously generated frames (from debug/) – lets us iterate on compositing without paying for generation. */
-  reuse: { outpaint?: Buffer; seam?: Buffer } = {},
+  reuse: { context?: Buffer; outpaint?: Buffer; seam?: Buffer } = {},
 ): Promise<EchoArtifacts> {
   const meta = await sharp(image).metadata();
-  const rect = photoRectInStrip(STRIP, {
-    width: meta.width!,
-    height: meta.height!,
-    hfovDeg: photo.hfovDeg,
-    pitchDeg: photo.pitchDeg,
-  });
-  const canvas = await buildCanvas(image, STRIP, rect);
-  await debug('canvas', canvas);
+  const geometry = { width: meta.width!, height: meta.height!, hfovDeg: photo.hfovDeg, pitchDeg: photo.pitchDeg };
 
   await onStep('outpaint');
+  // Step 1 – context.
+  const ctx = contextLayout(CONTEXT, geometry);
+  const contextCanvas = await buildCanvas(image, CONTEXT, ctx.rect);
+  await debug('canvas-context', contextCanvas);
+  const contextImg = await normalizeToStrip(
+    reuse.context ??
+      (await editImage({ prompt: prompts.context, images: [{ data: contextCanvas, mime: 'image/png' }], aspectRatio: '21:9', imageSize: '2K' })),
+    CONTEXT,
+  );
+  if (!reuse.context) await debug('context', contextImg);
+
+  // Step 2 – full 360° strip seeded with the context at its true angular size.
+  const ctxInStrip = contextRectInStrip(STRIP, CONTEXT, ctx.coverageDeg);
+  const rect = mapRectInto(ctx.rect, CONTEXT, ctxInStrip);
+  const stripCanvas = await buildCanvas(contextImg, STRIP, ctxInStrip);
+  await debug('canvas', stripCanvas);
   const generated =
     reuse.outpaint ??
-    (await editImage({
-      prompt: prompts.outpaint,
-      images: [{ data: canvas, mime: 'image/png' }],
-      aspectRatio: '4:1',
-      imageSize: IMAGE_SIZE,
-    }));
+    (await editImage({ prompt: prompts.outpaint, images: [{ data: stripCanvas, mime: 'image/png' }], aspectRatio: '4:1', imageSize: IMAGE_SIZE }));
   let pano = await normalizeToStrip(generated, STRIP);
   if (!reuse.outpaint) await debug('outpaint', pano);
 
@@ -107,6 +119,7 @@ export async function runEcho(echoId: string, opts: { recompose?: boolean } = {}
     const base = `echoes/${photo.id}/v${echo.pipelineVersion}`;
     const reuse = opts.recompose
       ? {
+          context: await getObjectBuffer(`${base}/debug/context.jpg`).catch(() => undefined),
           outpaint: await getObjectBuffer(`${base}/debug/outpaint.jpg`),
           seam: await getObjectBuffer(`${base}/debug/seam.jpg`).catch(() => undefined),
         }
@@ -114,7 +127,7 @@ export async function runEcho(echoId: string, opts: { recompose?: boolean } = {}
     const art = await generatePanorama(
       photo,
       image,
-      { outpaint: outpaintPrompt(photo, monument), seam: seamPrompt() },
+      { context: contextPrompt(photo, monument), outpaint: outpaintPrompt(photo, monument), seam: seamPrompt() },
       (step) => updateEcho(echoId, { step }),
       // Intermediate frames help tune prompts; cheap compared to the generation itself.
       async (name, img) => putObject(`${base}/debug/${name}.jpg`, await toJpeg(img, undefined, 92), 'image/jpeg'),

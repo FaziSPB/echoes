@@ -10,6 +10,7 @@
  *   pnpm cli echo:generate --photo <uuid>      (enqueue; --sync to run inline)
  *   pnpm cli echo:pregen [--sync]              (all verified photos)
  *   pnpm cli echo:recompose --photo <uuid>     (re-run compositing from saved frames, no GenAI cost)
+ *   pnpm cli queue:drain                       (drop waiting jobs, e.g. before a pipeline bump)
  *   pnpm cli smoke:gemini
  */
 import { parseArgs } from 'node:util';
@@ -104,6 +105,14 @@ const commands: Record<string, () => Promise<unknown>> = {
     log.info({ width: meta.width, height: meta.height }, 'image ok (4:1)');
   },
   bucket: () => ensureBucket(),
+  'queue:drain': async () => {
+    // Removes waiting/delayed jobs (active ones finish); their echoes stay "queued" and can be re-requested.
+    const q = getEchoQueue();
+    const counts = await q.getJobCounts('waiting', 'delayed', 'active');
+    await q.drain(true);
+    await sql`update echoes set status = 'failed', error = 'cancelled (queue drained)' where status = 'queued'`;
+    return counts;
+  },
 };
 
 const name = positionals[0];

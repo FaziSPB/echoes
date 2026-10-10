@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { photoRectInStrip, scaleRect, stripVfovDeg } from './geometry';
+import { contextLayout, contextRectInStrip, mapRectInto, photoRectInStrip, scaleRect, stripVfovDeg } from './geometry';
 
 const strip = { width: 4096, height: 1024 };
 
@@ -33,5 +33,22 @@ describe('strip helpers', () => {
   });
   it('scales rects between resolutions', () => {
     expect(scaleRect({ x: 100, y: 50, w: 200, h: 100 }, strip, { width: 2048, height: 512 })).toEqual({ x: 50, y: 25, w: 100, h: 50 });
+  });
+});
+
+describe('progressive layout', () => {
+  const ctx = { width: 2100, height: 900 };
+  it('puts the photo at half the context width and doubles the angular coverage', () => {
+    const { rect, coverageDeg } = contextLayout(ctx, { width: 3000, height: 2000, hfovDeg: 55 });
+    expect(rect.w).toBe(1050);
+    expect(coverageDeg).toBeCloseTo(110, 5);
+  });
+  it('keeps the photo at its true angular size in the strip after both steps', () => {
+    const photo = { width: 3000, height: 2000, hfovDeg: 55 };
+    const { rect, coverageDeg } = contextLayout(ctx, photo);
+    const placed = contextRectInStrip(strip, ctx, coverageDeg);
+    const final = mapRectInto(rect, ctx, placed);
+    expect(final.w).toBeCloseTo((55 * 4096) / 360, -1);
+    expect(Math.abs(final.x + final.w / 2 - 2048)).toBeLessThanOrEqual(1);
   });
 });

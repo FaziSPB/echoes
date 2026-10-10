@@ -15,19 +15,32 @@ function sceneFacts(photo: PhotoRow, monument: MonumentBrief | null): string {
   return lines.filter(Boolean).join('\n');
 }
 
-export function outpaintPrompt(photo: PhotoRow, monument: MonumentBrief | null): string {
-  return `You are a photo restorer reconstructing a historical street scene as a full 360-degree cylindrical panorama.
+const sharedRules = (photo: PhotoRow) => `- Keep the existing picture in the middle exactly as it is: same position, same size, same content. Do not zoom, re-frame or redraw it larger.
+- Continue it outward at the SAME scale, perspective, horizon line, lighting direction, focus and film grain, as if the same camera at the same spot turned its head.
+- Match the photograph's tonality exactly: if it is black-and-white or sepia keep everything so; if it is hand-coloured, use the same palette.
+- Show only what plausibly existed there in ${decade(photo.yearFrom)}: period architecture consistent with the visible buildings, street surface, lamps, vehicles and clothing. No modern objects.
+- No text, captions, watermarks, frames, borders or split panels. One continuous photograph.`;
 
-The input is a very wide canvas. An authentic archival photograph sits in the middle. Every flat neutral-gray (#808080) area is missing and must be painted.
+export function contextPrompt(photo: PhotoRow, monument: MonumentBrief | null): string {
+  return `You are a photo restorer widening a historical photograph.
+The input is a wide canvas; the authentic archival photograph fills its middle half. Every flat neutral-gray (#808080) area is missing and must be painted.
 
 ${sceneFacts(photo, monument)}
 
 Requirements:
-- Extend the scene outward from the photograph as if the same camera, at the same spot and eye level, rotated a full 360 degrees. Keep its perspective, horizon line, lighting direction, focus and film grain.
-- Do not alter, move, recolour or re-frame the photograph in the middle.
-- Match the photograph's tonality exactly: if it is black-and-white or sepia keep the whole panorama so; if it is hand-coloured, use the same palette.
-- Show only what plausibly existed there in ${decade(photo.yearFrom)}: period architecture consistent with the visible buildings, street surface, lamps, vehicles and clothing. No modern objects.
-- No text, captions, watermarks, frames, borders or split panels. One continuous photograph.
+${sharedRules(photo)}`;
+}
+
+export function outpaintPrompt(photo: PhotoRow, monument: MonumentBrief | null): string {
+  return `You are a photo restorer reconstructing a historical street scene as a full 360-degree cylindrical panorama.
+
+The input is a very wide canvas. An archival view (already widened) sits in the middle third. Every flat neutral-gray (#808080) area is missing and must be painted.
+
+${sceneFacts(photo, monument)}
+
+Requirements:
+${sharedRules(photo)}
+- Complete the full circle around the viewer: what is behind the camera belongs to the same square or street.
 - The left and right edges must connect seamlessly, because the image wraps around 360 degrees.`;
 }
 
