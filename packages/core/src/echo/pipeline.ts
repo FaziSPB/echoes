@@ -37,6 +37,7 @@ export async function generatePanorama(
   image: Buffer,
   prompts: { outpaint: string; seam: string },
   onStep: (step: 'outpaint' | 'seam' | 'compose') => Promise<void> = async () => {},
+  debug: (name: string, img: Buffer) => Promise<void> = async () => {},
 ): Promise<EchoArtifacts> {
   const meta = await sharp(image).metadata();
   const rect = photoRectInStrip(STRIP, {
@@ -46,6 +47,7 @@ export async function generatePanorama(
     pitchDeg: photo.pitchDeg,
   });
   const canvas = await buildCanvas(image, STRIP, rect);
+  await debug('canvas', canvas);
 
   await onStep('outpaint');
   const generated = await editImage({
@@ -55,6 +57,7 @@ export async function generatePanorama(
     imageSize: IMAGE_SIZE,
   });
   let pano = await normalizeToStrip(generated, STRIP);
+  await debug('outpaint', pano);
 
   if (SEAM_PASS) {
     // The wrap seam sits at x=0; roll it to the centre, gray it out and let the model heal it.
@@ -70,6 +73,7 @@ export async function generatePanorama(
       }),
       STRIP,
     );
+    await debug('seam', healed);
     pano = await rollX(await mergeBand(rolled, healed, band), -STRIP.width / 2);
   }
 
@@ -96,11 +100,14 @@ export async function runEcho(echoId: string): Promise<void> {
     const image = await loadPhotoImage(photo);
     const monochrome = await isMonochrome(image);
 
+    const base = `echoes/${photo.id}/v${echo.pipelineVersion}`;
     const art = await generatePanorama(
       photo,
       image,
       { outpaint: outpaintPrompt(photo, monument, monochrome), seam: seamPrompt(monochrome) },
       (step) => updateEcho(echoId, { step }),
+      // Intermediate frames help tune prompts; cheap compared to the generation itself.
+      async (name, img) => putObject(`${base}/debug/${name}.jpg`, await toJpeg(img, 2048, 80), 'image/jpeg'),
     );
 
     await updateEcho(echoId, { step: 'narration' });
@@ -110,7 +117,6 @@ export async function runEcho(echoId: string): Promise<void> {
     });
 
     await updateEcho(echoId, { step: 'upload' });
-    const base = `echoes/${photo.id}/v${echo.pipelineVersion}`;
     await putObject(`${base}/pano.jpg`, await toJpeg(art.pano, undefined, 88), 'image/jpeg');
     await putObject(`${base}/preview.jpg`, await toJpeg(art.pano, 1024, 80), 'image/jpeg');
 

@@ -9,6 +9,10 @@ function ai(): GoogleGenAI {
   return client;
 }
 
+/** Image generation at 4K takes ~30–90 s; never let a hung request block a worker slot. */
+const IMAGE_REQUEST = { timeout: 180_000, maxRetries: 1 };
+const TEXT_REQUEST = { timeout: 60_000, maxRetries: 2 };
+
 export type AspectRatio = '1:1' | '16:9' | '21:9' | '4:1' | '8:1' | '3:2' | '4:3';
 export type ImageSize = '1K' | '2K' | '4K';
 
@@ -35,7 +39,7 @@ export async function editImage(opts: {
       aspect_ratio: opts.aspectRatio,
       image_size: opts.imageSize,
     },
-  });
+  }, IMAGE_REQUEST);
   const out = interaction.output_image;
   if (!out?.data) {
     throw new Error(`Gemini returned no image${interaction.output_text ? `: ${interaction.output_text.slice(0, 300)}` : ''}`);
@@ -49,13 +53,13 @@ export async function generateJson<S extends z.ZodType>(prompt: string, schema: 
     model,
     input: prompt,
     response_format: { type: 'text', mime_type: 'application/json', schema: z.toJSONSchema(schema) as Record<string, unknown> },
-  });
+  }, TEXT_REQUEST);
   const text = interaction.output_text ?? '';
   return schema.parse(JSON.parse(text));
 }
 
 export async function generateText(prompt: string, model = env.GEMINI_TEXT_MODEL): Promise<string> {
-  const interaction = await ai().interactions.create({ model, input: prompt });
+  const interaction = await ai().interactions.create({ model, input: prompt }, TEXT_REQUEST);
   return (interaction.output_text ?? '').trim();
 }
 
