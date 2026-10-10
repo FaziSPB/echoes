@@ -46,16 +46,12 @@ export default function EchoScreen() {
   const photoQuery = useQuery({ queryKey: ['photo', photoId], queryFn: () => api.photo(photoId) });
   const photo = photoQuery.data;
 
-  // Echo lifecycle: request once if missing, then poll while the worker runs.
+  // Echo lifecycle: generation is paid, so it only starts on an explicit tap; then we poll while the worker runs.
   const requestEcho = useMutation({
     mutationFn: () => api.requestEcho(photoId),
     onSuccess: (echo) => queryClient.setQueryData(['echo', echo.id], echo),
   });
   const echoId = requestEcho.data?.id ?? photo?.echo?.id;
-  useEffect(() => {
-    if (photo && !photo.echo && !requestEcho.isPending && !requestEcho.data) requestEcho.mutate();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [photo?.id]);
   const echoQuery = useQuery({
     queryKey: ['echo', echoId],
     enabled: !!echoId,
@@ -65,6 +61,8 @@ export default function EchoScreen() {
   });
   const echo = echoQuery.data;
   const echoReady = echo?.status === 'done' && !!echo.panoUrl && !!echo.photoRect;
+  const echoBusy = requestEcho.isPending || echo?.status === 'queued' || echo?.status === 'running';
+  const canGenerate = !echoReady && !echoBusy;
 
   // Switch to the 360° view the moment it becomes available.
   const announced = useRef(false);
@@ -165,7 +163,7 @@ export default function EchoScreen() {
           <Text style={[styles.chip, onSite ? styles.chipOk : null]}>
             {onSite ? `Na miejscu · ${Math.round(distance!)} m` : distance !== null ? `Tryb zdalny · ${(distance / 1000).toFixed(1)} km` : 'Tryb zdalny'}
           </Text>
-          <EchoStatusChip status={echo?.status} step={echo?.step} error={echo?.error ?? requestEcho.error?.message} onRetry={() => requestEcho.mutate()} />
+          <EchoStatusChip status={echo?.status} step={echo?.step} error={echo?.error ?? requestEcho.error?.message} />
         </View>
         {!cameraPermission?.granted && mode !== 'immersive' ? (
           <Pressable style={styles.permission} onPress={requestCameraPermission}>
@@ -177,6 +175,12 @@ export default function EchoScreen() {
 
       <SafeAreaView edges={['bottom']} style={styles.bottom}>
         <View style={styles.panel}>
+          {canGenerate ? (
+            <Pressable style={styles.generate} onPress={() => requestEcho.mutate()}>
+              <Text style={styles.generateText}>Wygeneruj Echo 360°</Text>
+              <Text style={styles.generateHint}>AI rozszerzy kadr do panoramy · płatne API, ok. 3 min</Text>
+            </Pressable>
+          ) : null}
           <Segmented<EchoMode>
             value={echoReady ? mode : 'overlay'}
             onChange={setMode}
@@ -219,14 +223,12 @@ export default function EchoScreen() {
   );
 }
 
-function EchoStatusChip({ status, step, error, onRetry }: { status?: string; step?: string | null; error?: string | null; onRetry: () => void }) {
+function EchoStatusChip({ status, step, error }: { status?: string; step?: string | null; error?: string | null }) {
   if (status === 'done') return <Text style={[styles.chip, styles.chipAi]}>Echo 360° gotowe</Text>;
-  if (status === 'failed' || (!status && error))
-    return (
-      <Pressable onPress={onRetry}>
-        <Text style={[styles.chip, styles.chipWarn]}>Echo 360° niedostępne · ponów</Text>
-      </Pressable>
-    );
+  if (status === 'failed' || (!status && error)) {
+    const reason = error?.includes('limit') ? 'dzienny limit generacji wyczerpany' : 'generowanie nie powiodło się';
+    return <Text style={[styles.chip, styles.chipWarn]}>Echo 360°: {reason}</Text>;
+  }
   if (status === 'queued' || status === 'running')
     return <Text style={styles.chip}>⏳ {STEP_LABELS[step ?? 'queued'] ?? step}</Text>;
   return null;
@@ -272,4 +274,7 @@ const styles = StyleSheet.create({
   save: { backgroundColor: Palette.sepia, borderRadius: Radius.pill, paddingVertical: 10, alignItems: 'center' },
   saveText: { color: Palette.white, fontWeight: '700' },
   attribution: { color: 'rgba(243,234,219,0.7)', fontSize: 10, fontStyle: 'italic' },
+  generate: { backgroundColor: Palette.paper, borderRadius: Radius.md, paddingVertical: 10, paddingHorizontal: Spacing.md, alignItems: 'center', gap: 2 },
+  generateText: { color: Palette.ink, fontFamily: 'serif', fontSize: 16, fontWeight: '700' },
+  generateHint: { color: Palette.inkSoft, fontSize: 11 },
 });
