@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dollyCrop, frameScale, StepDetector, walkBlend } from './walk';
+import { archivalArc, dollyCrop, frameScale, scaleArc, StepDetector, walkBlend } from './walk';
 
 describe('frameScale', () => {
   it('magnifies a 28 m subject by ×1.56 after 10 m', () => {
@@ -59,5 +59,30 @@ describe('StepDetector', () => {
     let ghost = 0;
     for (let i = 0; i < 300; i++) if (still.push(noise(), noise(), noise(), i * 16.7)) ghost++;
     expect(ghost).toBe(0);
+  });
+});
+
+describe('archivalArc', () => {
+  it('maps a centred photoRect to an arc facing the photo heading', () => {
+    // 60° wide frame in the middle of a 4096×1024 strip, vertically centred.
+    const arc = archivalArc({ width: 3, height: 2, hfovDeg: 55, pitchDeg: 0 }, { width: 4096, height: 1024, rect: { x: 1707, y: 284, w: 683, h: 456 } });
+    expect(arc.centerDeg).toBeCloseTo(0, 0);
+    expect(arc.widthDeg).toBeCloseTo(60, 0);
+    expect(arc.yCenter).toBeCloseTo(0, 2);
+    // Same px/deg horizontally and vertically on the strip: height/width in radians = 456/683.
+    expect(arc.height / ((arc.widthDeg * Math.PI) / 180)).toBeCloseTo(456 / 683, 3);
+  });
+  it('falls back to the photo FOV and pitch without a panorama', () => {
+    const arc = archivalArc({ width: 3000, height: 2000, hfovDeg: 57, pitchDeg: 5 });
+    expect(arc.widthDeg).toBe(57);
+    expect(arc.yCenter).toBeGreaterThan(0);
+  });
+  it('shrinks frames further along the path so the dolly brings them to full size at their spot', () => {
+    const arc = { centerDeg: 2, widthDeg: 60, yCenter: 0.1, height: 0.7 };
+    const far = scaleArc(arc, 28.7, 10);
+    expect(far.widthDeg).toBeCloseTo(60 * (18.7 / 28.7), 5);
+    expect(far.centerDeg).toBe(2);
+    // From 10 m along, the camera is 10/28.7 of the radius closer: magnification 28.7/18.7 restores the original size.
+    expect(far.widthDeg * (28.7 / 18.7)).toBeCloseTo(60, 5);
   });
 });

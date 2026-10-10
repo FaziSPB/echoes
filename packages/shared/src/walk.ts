@@ -62,3 +62,34 @@ export class StepDetector {
     return false;
   }
 }
+
+/** Placement of the archival frame on the 360° cylinder, in units of the cylinder radius (angles in degrees). */
+export type ArchivalArc = { centerDeg: number; widthDeg: number; yCenter: number; height: number };
+
+/**
+ * Where the archival photo sits on the panorama cylinder: from the echo's photoRect when a panorama exists
+ * (so walk frames land exactly on the archival pixels), otherwise from the photo's field of view and pitch.
+ */
+export function archivalArc(
+  photo: { width: number; height: number; hfovDeg: number; pitchDeg: number },
+  pano?: { width: number; height: number; rect: { x: number; y: number; w: number; h: number } } | null,
+): ArchivalArc {
+  if (pano) {
+    const cylHeight = (2 * Math.PI * pano.height) / pano.width;
+    const { x, y, w, h } = pano.rect;
+    return {
+      centerDeg: ((x + w / 2) / pano.width - 0.5) * 360,
+      widthDeg: (w / pano.width) * 360,
+      yCenter: cylHeight / 2 - ((y + h / 2) / pano.height) * cylHeight,
+      height: (h / pano.height) * cylHeight,
+    };
+  }
+  const arcLength = (2 * Math.PI * photo.hfovDeg) / 360;
+  return { centerDeg: 0, widthDeg: photo.hfovDeg, yCenter: Math.tan((photo.pitchDeg * Math.PI) / 180), height: (arcLength * photo.height) / photo.width };
+}
+
+/** A walk frame captured `frameM` along the path, drawn at the start position so the camera dolly magnifies it correctly. */
+export function scaleArc(arc: ArchivalArc, subjectDistanceM: number, frameM: number): ArchivalArc {
+  const s = (subjectDistanceM - frameM) / subjectDistanceM;
+  return { centerDeg: arc.centerDeg, widthDeg: arc.widthDeg * s, yCenter: arc.yCenter * s, height: arc.height * s };
+}
