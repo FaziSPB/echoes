@@ -11,12 +11,14 @@
  *   pnpm cli echo:pregen [--sync]              (all verified photos)
  *   pnpm cli echo:recompose --photo <uuid>     (re-run compositing from saved frames, no GenAI cost)
  *   pnpm cli queue:drain                       (drop waiting jobs, e.g. before a pipeline bump)
+ *   pnpm cli budget                            (paid image generations used today / daily limit)
  *   pnpm cli smoke:gemini
  */
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import {
   claimEcho,
+  closeBudget,
   closeEchoQueue,
   editImage,
   env,
@@ -25,6 +27,7 @@ import {
   geoparseCandidates,
   generateText,
   getEchoForPhoto,
+  imageBudget,
   getEchoQueue,
   harvestCommons,
   linkPhotosToMonuments,
@@ -105,6 +108,7 @@ const commands: Record<string, () => Promise<unknown>> = {
     log.info({ width: meta.width, height: meta.height }, 'image ok (4:1)');
   },
   bucket: () => ensureBucket(),
+  budget: () => imageBudget(),
   'queue:drain': async () => {
     // Removes waiting/delayed jobs (active ones finish); their echoes stay "queued" and can be re-requested.
     const q = getEchoQueue();
@@ -130,4 +134,5 @@ try {
 } finally {
   await sql.end({ timeout: 5 });
   await closeEchoQueue().catch(() => {});
+  await closeBudget().catch(() => {});
 }

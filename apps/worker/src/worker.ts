@@ -1,5 +1,5 @@
-import { Worker } from 'bullmq';
-import { ECHO_QUEUE, ensureBucket, log, migrate, redisConnection, runEcho, sql, type EchoJobData } from '@echoes/core';
+import { UnrecoverableError, Worker } from 'bullmq';
+import { BudgetExceededError, closeBudget, ECHO_QUEUE, ensureBucket, log, migrate, redisConnection, runEcho, sql, type EchoJobData } from '@echoes/core';
 
 await migrate();
 await ensureBucket();
@@ -12,7 +12,13 @@ const echoWorker = new Worker<EchoJobData>(
   ECHO_QUEUE,
   async (job) => {
     log.info({ jobId: job.id, ...job.data, attempt: job.attemptsMade + 1 }, 'echo job started');
-    await runEcho(job.data.echoId);
+    try {
+      await runEcho(job.data.echoId);
+    } catch (err) {
+      // Retrying cannot help when today's budget is spent – fail the job for good.
+      if (err instanceof BudgetExceededError) throw new UnrecoverableError(err.message);
+      throw err;
+    }
   },
   {
     connection: redisConnection(),
@@ -28,6 +34,7 @@ log.info('worker ready');
 
 async function shutdown() {
   await echoWorker.close();
+  await closeBudget();
   await sql.end({ timeout: 5 });
   process.exit(0);
 }
