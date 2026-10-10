@@ -1,8 +1,8 @@
-import { angleDiffDeg, normalizeDeg } from '@echoes/shared';
+import { angleDiffDeg, normalizeDeg, walkBlend } from '@echoes/shared';
 import { Canvas, useFrame, useLoader, useThree } from '@react-three/fiber/native';
 import { Suspense, useEffect, useMemo, useRef } from 'react';
 import { Platform, StyleSheet } from 'react-native';
-import { CircleGeometry, Color, CylinderGeometry, DoubleSide, LinearFilter, type Group, NoColorSpace, PlaneGeometry, TextureLoader } from 'three';
+import { CircleGeometry, Color, CylinderGeometry, DoubleSide, LinearFilter, type Group, type Mesh, NoColorSpace, PlaneGeometry, type Texture, TextureLoader } from 'three';
 import { cameraHeadingDeg, deg2rad, smoothAngleDeg } from '@/lib/orientation';
 import { createEchoMaterial } from './echo-material';
 import type { EchoRendererProps } from './types';
@@ -12,15 +12,23 @@ const CAMERA_VFOV = 63;
 const PANO_RADIUS = 10;
 const PHOTO_DISTANCE = 8;
 
+function makeRaw(tex: Texture) {
+  tex.colorSpace = NoColorSpace;
+  tex.minFilter = LinearFilter;
+  tex.generateMipmaps = false;
+  tex.needsUpdate = true;
+}
+
 function useRawTexture(url: string) {
   const tex = useLoader(TextureLoader, url);
-  useMemo(() => {
-    tex.colorSpace = NoColorSpace;
-    tex.minFilter = LinearFilter;
-    tex.generateMipmaps = false;
-    tex.needsUpdate = true;
-  }, [tex]);
+  useMemo(() => makeRaw(tex), [tex]);
   return tex;
+}
+
+function useRawTextures(urls: string[]) {
+  const textures = useLoader(TextureLoader, urls);
+  useMemo(() => textures.forEach(makeRaw), [textures]);
+  return textures;
 }
 
 /** Drives the camera from the device pose and keeps the world group aligned with real north. */
@@ -122,10 +130,52 @@ function PhotoPlane({ photo, opacity }: { photo: EchoRendererProps['photo']; opa
   return <mesh geometry={geometry} material={material} position={[0, y, -PHOTO_DISTANCE]} renderOrder={2} />;
 }
 
+/**
+ * Walk in time: frame a (behind us, enlarged by the dolly factor) under frame b (ahead, slightly shrunk) faded in by t.
+ * The displayed distance eases towards the step-counted one, so each 0.7 m step glides instead of jumping.
+ */
+function WalkPlanes({ photo, walk }: { photo: EchoRendererProps['photo']; walk: NonNullable<EchoRendererProps['walk']> }) {
+  const textures = useRawTextures(walk.frames.map((f) => f.url));
+  const width = 2 * PHOTO_DISTANCE * Math.tan(deg2rad(photo.hfovDeg / 2));
+  const height = (width * photo.height) / photo.width;
+  const geometry = useMemo(() => new PlaneGeometry(width, height), [width, height]);
+  const materials = useMemo(() => textures.map((t) => createEchoMaterial(t)), [textures]);
+  const meshes = useRef<Array<Mesh | null>>([]);
+  const target = useRef(walk.distanceM);
+  target.current = walk.distanceM;
+  const shown = useRef(walk.distanceM);
+  const distances = useMemo(() => walk.frames.map((f) => f.distanceM), [walk.frames]);
+  const y = PHOTO_DISTANCE * Math.tan(deg2rad(photo.pitchDeg));
+
+  useFrame(() => {
+    shown.current += (target.current - shown.current) * 0.08;
+    const blend = walkBlend(distances, shown.current, walk.subjectDistanceM);
+    meshes.current.forEach((mesh, i) => {
+      if (!mesh) return;
+      const isA = i === blend.a;
+      const isB = i === blend.b && blend.b !== blend.a;
+      mesh.visible = isA || isB;
+      if (!mesh.visible) return;
+      mesh.scale.setScalar(isA ? blend.scaleA : blend.scaleB);
+      mesh.renderOrder = isA ? 2 : 3;
+      materials[i]!.uniforms.uOpacity!.value = isA ? 1 : blend.t;
+    });
+  });
+
+  return (
+    <>
+      {materials.map((m, i) => (
+        <mesh key={i} ref={(el) => void (meshes.current[i] = el)} geometry={geometry} material={m} position={[0, y, -PHOTO_DISTANCE]} />
+      ))}
+    </>
+  );
+}
+
 function Scene(props: EchoRendererProps) {
   const world = useRef<Group>(null);
-  const { photo, echo, mode, opacity, highlightAi } = props;
-  const showPano = echo !== null && mode !== 'overlay';
+  const { photo, echo, mode, opacity, highlightAi, walk } = props;
+  const showWalk = mode === 'walk' && walk !== null;
+  const showPano = !showWalk && echo !== null && mode !== 'overlay';
   return (
     <>
       <Rig {...props} photoHeadingDeg={photo.headingDeg} world={world} />
@@ -133,7 +183,13 @@ function Scene(props: EchoRendererProps) {
         {/* Content lives in "true north" space: rotate by −heading so its centre faces the photo's bearing. */}
         <group rotation={[0, -deg2rad(photo.headingDeg), 0]}>
           <Suspense fallback={null}>
-            {showPano ? <PanoCylinder echo={echo} opacity={mode === 'immersive' ? 1 : opacity} highlightAi={highlightAi} /> : <PhotoPlane photo={photo} opacity={opacity} />}
+            {showWalk ? (
+              <WalkPlanes photo={photo} walk={walk} />
+            ) : showPano ? (
+              <PanoCylinder echo={echo} opacity={mode === 'immersive' ? 1 : opacity} highlightAi={highlightAi} />
+            ) : (
+              <PhotoPlane photo={photo} opacity={opacity} />
+            )}
           </Suspense>
         </group>
       </group>

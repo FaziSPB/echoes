@@ -2,7 +2,7 @@ import type { Rect } from '@echoes/shared';
 import type { RefObject } from 'react';
 import type { DevicePose } from '@/hooks/use-device-pose';
 
-export type EchoMode = 'overlay' | 'echo' | 'immersive';
+export type EchoMode = 'overlay' | 'echo' | 'immersive' | 'walk';
 
 /** How the virtual scene's north is tied to the real world. */
 export type Alignment =
@@ -19,6 +19,8 @@ export type EchoRendererProps = {
   highlightAi: boolean;
   photo: { url: string; width: number; height: number; hfovDeg: number; pitchDeg: number; headingDeg: number };
   echo: { panoUrl: string; panoWidth: number; panoHeight: number; photoRect: Rect; skyColor: string | null; groundColor: string | null } | null;
+  /** "Walk in time": frames along the path and how far the user has walked. */
+  walk: { frames: Array<{ url: string; distanceM: number }>; subjectDistanceM: number; distanceM: number } | null;
   /** Reports the device heading (scene frame) so the UI can draw a "turn left/right" hint. */
   onRelativeYaw?: (photoMinusViewDeg: number | null) => void;
 };
