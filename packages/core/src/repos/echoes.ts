@@ -52,6 +52,19 @@ export async function getEchoForPhoto(photoId: string, version = env.ECHO_PIPELI
 }
 
 /**
+ * What the app should show: the newest *finished* echo of any pipeline version (an older panorama beats none),
+ * otherwise the current version's row (queued/running/failed).
+ */
+export async function getDisplayEcho(photoId: string, version = env.ECHO_PIPELINE_VERSION): Promise<EchoRow | null> {
+  const [row] = await sql<EchoRow[]>`
+    select * from echoes
+    where photo_id = ${photoId} and (status = 'done' or pipeline_version = ${version})
+    order by (status = 'done') desc, pipeline_version desc
+    limit 1`;
+  return row ?? null;
+}
+
+/**
  * Idempotent: one echo per (photo, pipeline version). Returns the row and whether the caller should enqueue work
  * (new row, or a previous failure being retried).
  */

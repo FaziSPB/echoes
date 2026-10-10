@@ -2,7 +2,7 @@ import { bearingDeg, distanceM, type PhotoAdminPatch, type PhotoDetail, type Pho
 import { compact, sql } from '../db';
 import { env } from '../env';
 import { mediaUrl } from '../storage';
-import { getEchoForPhoto, toEchoDto } from './echoes';
+import { getDisplayEcho, toEchoDto } from './echoes';
 import { getMonument } from './monuments';
 
 type SummaryRow = {
@@ -30,9 +30,15 @@ const summaryColumns = sql`
   p.source, p.source_ref, p.attribution, p.monument_inspire_id, m.name as monument_name,
   e.status as echo_status`;
 
+// Same precedence as getDisplayEcho: newest finished echo of any version, else the current version's row.
 const summaryJoins = sql`
   left join monuments m on m.inspire_id = p.monument_inspire_id
-  left join echoes e on e.photo_id = p.id and e.pipeline_version = ${env.ECHO_PIPELINE_VERSION}`;
+  left join lateral (
+    select x.status from echoes x
+    where x.photo_id = p.id and (x.status = 'done' or x.pipeline_version = ${env.ECHO_PIPELINE_VERSION})
+    order by (x.status = 'done') desc, x.pipeline_version desc
+    limit 1
+  ) e on true`;
 
 export function yearLabel(r: { yearFrom: number | null; yearTo: number | null; dateText: string | null }): string | null {
   if (r.yearFrom && r.yearTo && r.yearTo !== r.yearFrom) return `${r.yearFrom}–${r.yearTo}`;
@@ -136,7 +142,7 @@ export async function getPhotoDetail(id: string): Promise<PhotoDetail | null> {
   if (!p) return null;
   const [monument, echo] = await Promise.all([
     p.monumentInspireId ? getMonument(p.monumentInspireId) : null,
-    getEchoForPhoto(p.id),
+    getDisplayEcho(p.id),
   ]);
   return {
     id: p.id,
