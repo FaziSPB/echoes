@@ -69,6 +69,8 @@ cd apps/mobile && npx expo start  # Expo Go na Androidzie (ta sama sieć Wi-Fi)
 Jedno echo to 2 płatne obrazy (kontekst 2K + pas 360°), a z domykaniem szwu 3. Zabezpieczenia:
 - `ECHO_DAILY_IMAGE_LIMIT` (domyślnie 10): twardy dzienny limit dla wszystkich workerów i CLI, liczony atomowo w Redis.
   Echo, które się nie zmieści, w ogóle nie startuje (`pnpm cli budget` pokazuje zużycie). `0` wyłącza generację.
+  Żądanie odrzucone przez API (HTTP 4xx/5xx) zwraca rezerwację. Timeout zostaje policzony, bo obraz mógł zostać naliczony.
+- Brak płatności (402 albo 429 „Free Tier” dla modelu obrazów) aplikacja i CLI pokazują jako „sprawdź Billing w Google AI Studio”, a worker nie ponawia takiego zadania.
 - `ECHO_IMAGE_SIZE=2K` (zamiast 4K) i `ECHO_SEAM_PASS=false`, gdy liczy się każdy grosz (szew zostaje za plecami widza).
 - Aplikacja generuje echo wyłącznie po kliknięciu „Wygeneruj Echo 360°”. Zwykłe otwarcie zdjęcia nic nie kosztuje.
 - `pnpm cli echo:recompose --photo <id>` przelicza kompozycję z zapisanych klatek, bez nowych generacji.
