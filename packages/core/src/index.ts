@@ -9,6 +9,8 @@ export * from './repos/photos';
 export * from './repos/echoes';
 export * from './echo/geometry';
 export * from './echo/pipeline';
+export * from './echo/walk';
+export * from './repos/walks';
 export * from './ingest/registry';
 export * from './ingest/commons';
 export * from './ingest/curated';

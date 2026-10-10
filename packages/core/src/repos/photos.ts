@@ -4,6 +4,7 @@ import { env } from '../env';
 import { mediaUrl } from '../storage';
 import { getDisplayEcho, toEchoDto } from './echoes';
 import { getMonument } from './monuments';
+import { getWalkForPhoto, toWalkDto } from './walks';
 
 type SummaryRow = {
   id: string;
@@ -140,9 +141,10 @@ export async function getPhotoRow(id: string): Promise<PhotoRow | null> {
 export async function getPhotoDetail(id: string): Promise<PhotoDetail | null> {
   const p = await getPhotoRow(id);
   if (!p) return null;
-  const [monument, echo] = await Promise.all([
+  const [monument, echo, walk] = await Promise.all([
     p.monumentInspireId ? getMonument(p.monumentInspireId) : null,
     getDisplayEcho(p.id),
+    getWalkForPhoto(p.id),
   ]);
   return {
     id: p.id,
@@ -171,6 +173,8 @@ export async function getPhotoDetail(id: string): Promise<PhotoDetail | null> {
     status: p.status,
     monument,
     echo: echo ? toEchoDto(echo) : null,
+    // Only finished walks are exposed; generation happens offline (CLI) to keep costs under control.
+    walk: walk?.status === 'done' ? toWalkDto(walk) : null,
   };
 }
 
