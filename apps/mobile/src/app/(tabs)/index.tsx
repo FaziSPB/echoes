@@ -5,27 +5,27 @@ import { router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import MapView, { Marker, type Region } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LeafletMap, type LeafletMapHandle } from '@/components/leaflet-map';
 import { PhotoCard } from '@/components/photo-card';
 import { Palette, Radius, Spacing } from '@/constants/theme';
 import { useUserLocation } from '@/hooks/use-user-location';
 import { api, type BBox } from '@/lib/api';
 import { DEFAULT_CENTER } from '@/lib/config';
-import { SEPIA_MAP_STYLE } from '@/lib/map-style';
 
-const INITIAL_REGION: Region = { latitude: DEFAULT_CENTER.lat, longitude: DEFAULT_CENTER.lon, latitudeDelta: 0.012, longitudeDelta: 0.012 };
+const INITIAL_ZOOM = 16;
 
-function regionToView(r: Region): { bbox: BBox; zoom: number } {
-  const bbox: BBox = [r.longitude - r.longitudeDelta / 2, r.latitude - r.latitudeDelta / 2, r.longitude + r.longitudeDelta / 2, r.latitude + r.latitudeDelta / 2];
-  return { bbox, zoom: Math.log2(360 / r.longitudeDelta) };
-}
+/** Viewport before the map reports its real bounds (~Old Town). */
+const INITIAL_VIEW: { bbox: BBox; zoom: number } = {
+  bbox: [DEFAULT_CENTER.lon - 0.006, DEFAULT_CENTER.lat - 0.004, DEFAULT_CENTER.lon + 0.006, DEFAULT_CENTER.lat + 0.004],
+  zoom: INITIAL_ZOOM,
+};
 
 type Selection = { kind: 'photo'; photo: PhotoSummary } | { kind: 'monument'; monument: MonumentPoint } | null;
 
 export default function MapScreen() {
-  const mapRef = useRef<MapView>(null);
-  const [view, setView] = useState(() => regionToView(INITIAL_REGION));
+  const mapRef = useRef<LeafletMapHandle>(null);
+  const [view, setView] = useState(INITIAL_VIEW);
   const [selection, setSelection] = useState<Selection>(null);
   const { location } = useUserLocation();
 
@@ -42,56 +42,25 @@ export default function MapScreen() {
 
   return (
     <View style={styles.container}>
-      <MapView
+      <LeafletMap
         ref={mapRef}
-        style={StyleSheet.absoluteFill}
-        initialRegion={INITIAL_REGION}
-        customMapStyle={SEPIA_MAP_STYLE}
-        showsUserLocation
-        showsMyLocationButton={false}
-        toolbarEnabled={false}
-        onRegionChangeComplete={(r) => setView(regionToView(r))}
-        onPress={() => setSelection(null)}>
-        {monuments.data?.items.map((m) =>
-          m.kind === 'cluster' ? (
-            <Marker
-              key={`c-${m.lat.toFixed(5)}-${m.lon.toFixed(5)}`}
-              coordinate={{ latitude: m.lat, longitude: m.lon }}
-              tracksViewChanges={false}
-              onPress={() => mapRef.current?.animateCamera({ center: { latitude: m.lat, longitude: m.lon }, zoom: Math.round(view.zoom) + 2 })}>
-              <View style={[styles.cluster, { width: 26 + Math.min(m.count, 60) / 3, height: 26 + Math.min(m.count, 60) / 3 }]}>
-                <Text style={styles.clusterText}>{m.count}</Text>
-              </View>
-            </Marker>
-          ) : (
-            <Marker
-              key={m.inspireId}
-              coordinate={{ latitude: m.lat, longitude: m.lon }}
-              tracksViewChanges={false}
-              onPress={(e) => {
-                e.stopPropagation();
-                setSelection({ kind: 'monument', monument: m });
-              }}>
-              <View style={styles.monumentDot} />
-            </Marker>
-          ),
-        )}
-        {photos.data?.items.map((p) => (
-          <Marker
-            key={p.id}
-            coordinate={{ latitude: p.lat, longitude: p.lon }}
-            tracksViewChanges={false}
-            zIndex={10}
-            onPress={(e) => {
-              e.stopPropagation();
-              setSelection({ kind: 'photo', photo: p });
-            }}>
-            <View style={[styles.echoMarker, selection?.kind === 'photo' && selection.photo.id === p.id && styles.echoMarkerActive]}>
-              <Text style={styles.echoMarkerText}>{p.yearFrom ?? '?'}</Text>
-            </View>
-          </Marker>
-        ))}
-      </MapView>
+        initialCenter={DEFAULT_CENTER}
+        initialZoom={INITIAL_ZOOM}
+        monuments={monuments.data?.items ?? []}
+        photos={photos.data?.items ?? []}
+        selectedPhotoId={selection?.kind === 'photo' ? selection.photo.id : null}
+        me={location}
+        onRegionChange={(bbox, zoom) => setView({ bbox, zoom })}
+        onPress={() => setSelection(null)}
+        onSelectPhoto={(id) => {
+          const photo = photos.data?.items.find((p) => p.id === id);
+          if (photo) setSelection({ kind: 'photo', photo });
+        }}
+        onSelectMonument={(id) => {
+          const monument = monuments.data?.items.find((m) => m.kind === 'monument' && m.inspireId === id);
+          if (monument?.kind === 'monument') setSelection({ kind: 'monument', monument });
+        }}
+      />
 
       <SafeAreaView edges={['top']} style={styles.header} pointerEvents="box-none">
         <View style={styles.brand}>
@@ -101,7 +70,7 @@ export default function MapScreen() {
         {location ? (
           <Pressable
             style={styles.locate}
-            onPress={() => mapRef.current?.animateCamera({ center: { latitude: location.lat, longitude: location.lon }, zoom: 17 })}>
+            onPress={() => mapRef.current?.flyTo(location.lat, location.lon, 17)}>
             <Text style={styles.locateText}>◎</Text>
           </Pressable>
         ) : null}
@@ -147,12 +116,6 @@ const styles = StyleSheet.create({
   brandSub: { fontSize: 12, color: Palette.inkSoft },
   locate: { marginTop: Spacing.sm, width: 48, height: 48, borderRadius: 24, backgroundColor: Palette.paper, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Palette.paperDark },
   locateText: { fontSize: 22, color: Palette.ink },
-  cluster: { borderRadius: 999, backgroundColor: 'rgba(107,90,72,0.78)', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: Palette.paper },
-  clusterText: { color: Palette.paper, fontSize: 11, fontWeight: '700' },
-  monumentDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: Palette.inkSoft, borderWidth: 2, borderColor: Palette.paper },
-  echoMarker: { paddingHorizontal: 8, height: 30, borderRadius: 15, backgroundColor: Palette.sepia, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: Palette.white },
-  echoMarkerActive: { backgroundColor: Palette.ink, transform: [{ scale: 1.15 }] },
-  echoMarkerText: { color: Palette.white, fontFamily: 'serif', fontWeight: '700', fontSize: 13 },
   sheet: { position: 'absolute', left: Spacing.lg, right: Spacing.lg, bottom: Spacing.xl, gap: Spacing.sm, backgroundColor: Palette.paper, padding: Spacing.md, borderRadius: Radius.lg, borderWidth: 1, borderColor: Palette.paperDark, elevation: 6 },
   attribution: { fontSize: 11, color: Palette.inkSoft, fontStyle: 'italic' },
   cta: { backgroundColor: Palette.ink, borderRadius: Radius.pill, paddingVertical: Spacing.md, alignItems: 'center' },

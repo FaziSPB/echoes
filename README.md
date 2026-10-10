@@ -24,7 +24,7 @@ piksele archiwum zostają **zawsze nienaruszone**, a część zrekonstruowaną p
 
 | Warstwa | Technologia | Dlaczego |
 |---|---|---|
-| Aplikacja | Expo SDK 57, Expo Router, react-native-maps, expo-camera, expo-sensors, three.js + @react-three/fiber/native | Działa w Expo Go bez natywnego builda; „magic window” AR: kamera + przezroczysta scena GL sterowana żyroskopem i kompasem |
+| Aplikacja | Expo SDK 57, Expo Router, Leaflet + OpenStreetMap (WebView), expo-camera, expo-sensors, three.js + @react-three/fiber/native | Działa w Expo Go bez natywnego builda i bez kluczy API; „magic window” AR: kamera + przezroczysta scena GL, orientacja z fuzji żyroskopu i czujnika absolutnego |
 | Kontrakty | `packages/shared` (zod) | Te same schematy walidują requesty w API i odpowiedzi w aplikacji (end-to-end type safety) |
 | API | Fastify 5 + fastify-type-provider-zod + Swagger | Bezstanowe, skaluje się poziomo; OpenAPI generowane ze schematów |
 | Dane | PostgreSQL 17 + PostGIS 3.5 | Indeksy GiST, `ST_DWithin`, klastrowanie `ST_SnapToGrid`: cały kraj (81 tys. zabytków) w jednym zapytaniu |
