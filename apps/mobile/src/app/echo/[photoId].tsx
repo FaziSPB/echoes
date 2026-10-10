@@ -1,4 +1,4 @@
-import { distanceM } from '@echoes/shared';
+import { distanceM, walkBlend } from '@echoes/shared';
 import Slider from '@react-native-community/slider';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -14,6 +14,7 @@ import { Segmented } from '@/components/segmented';
 import { Palette, Radius, Spacing } from '@/constants/theme';
 import { useDevicePose } from '@/hooks/use-device-pose';
 import { useUserLocation } from '@/hooks/use-user-location';
+import { useWalkProgress } from '@/hooks/use-walk-progress';
 import { api } from '@/lib/api';
 import { ADMIN_TOKEN, ON_SITE_RADIUS_M, resolveMediaUrl } from '@/lib/config';
 
@@ -63,6 +64,25 @@ export default function EchoScreen() {
   const echoReady = echo?.status === 'done' && !!echo.panoUrl && !!echo.photoRect;
   const echoBusy = requestEcho.isPending || echo?.status === 'queued' || echo?.status === 'running';
   const canGenerate = !echoReady && !echoBusy;
+
+  // Walk in time: only photos with a pre-generated walk (CLI) offer it.
+  const walk = photo?.walk && photo.walk.frames.length >= 2 ? photo.walk : null;
+  const walkProgress = useWalkProgress(pose, mode === 'walk', walk?.lengthM ?? 10);
+  const walkFrameShown = useMemo(() => {
+    if (!walk) return null;
+    const b = walkBlend(walk.frames.map((f) => f.distanceM), walkProgress.distanceM, walk.subjectDistanceM);
+    return walk.frames[b.t < 0.5 ? b.a : b.b]!;
+  }, [walk, walkProgress.distanceM]);
+  const effectiveMode: EchoMode = mode === 'walk' ? (walk ? 'walk' : 'overlay') : echoReady ? mode : 'overlay';
+  const changeMode = (next: EchoMode) => {
+    if (next === 'walk') {
+      // Start the walk from here: the archival view is placed straight ahead and the distance resets.
+      walkProgress.reset();
+      setManualYawDeg(0);
+      setAnchorToken((t) => t + 1);
+    }
+    setMode(next);
+  };
 
   // Switch to the 360° view the moment it becomes available.
   const announced = useRef(false);
@@ -131,7 +151,7 @@ export default function EchoScreen() {
 
       {photo.imageUrl && photo.width && photo.height ? (
         <GlEchoRenderer
-          mode={echoReady ? mode : 'overlay'}
+          mode={effectiveMode}
           pose={pose}
           alignment={alignment}
           manualYawDeg={manualYawDeg}
@@ -141,6 +161,15 @@ export default function EchoScreen() {
           echo={
             echoReady
               ? { panoUrl: resolveMediaUrl(echo.panoUrl)!, panoWidth: echo.panoWidth ?? 4096, panoHeight: echo.panoHeight ?? 1024, photoRect: echo.photoRect!, skyColor: echo.skyColor, groundColor: echo.groundColor }
+              : null
+          }
+          walk={
+            walk
+              ? {
+                  frames: walk.frames.map((f) => ({ url: resolveMediaUrl(f.imageUrl)!, distanceM: f.distanceM })),
+                  subjectDistanceM: walk.subjectDistanceM,
+                  distanceM: walkProgress.distanceM,
+                }
               : null
           }
           onRelativeYaw={setRelativeYaw}
@@ -164,6 +193,11 @@ export default function EchoScreen() {
             {onSite ? `Na miejscu · ${Math.round(distance!)} m` : distance !== null ? `Tryb zdalny · ${(distance / 1000).toFixed(1)} km` : 'Tryb zdalny'}
           </Text>
           <EchoStatusChip status={echo?.status} step={echo?.step} error={echo?.error ?? requestEcho.error?.message} />
+          {effectiveMode === 'walk' && walkFrameShown ? (
+            <Text style={[styles.chip, walkFrameShown.generated ? styles.chipAi : styles.chipOk]}>
+              {walkFrameShown.generated ? `Rekonstrukcja AI · ${walkFrameShown.distanceM.toFixed(1)} m` : `Oryginał · ${photo.yearLabel ?? ''}`}
+            </Text>
+          ) : null}
         </View>
         {!cameraPermission?.granted && mode !== 'immersive' ? (
           <Pressable style={styles.permission} onPress={requestCameraPermission}>
@@ -175,22 +209,35 @@ export default function EchoScreen() {
 
       <SafeAreaView edges={['bottom']} style={styles.bottom}>
         <View style={styles.panel}>
-          {canGenerate ? (
+          {canGenerate && mode !== 'walk' ? (
             <Pressable style={styles.generate} onPress={() => requestEcho.mutate()}>
               <Text style={styles.generateText}>Wygeneruj Echo 360°</Text>
               <Text style={styles.generateHint}>AI rozszerzy kadr do panoramy · płatne API, ok. 3 min</Text>
             </Pressable>
           ) : null}
           <Segmented<EchoMode>
-            value={echoReady ? mode : 'overlay'}
-            onChange={setMode}
+            value={effectiveMode}
+            onChange={changeMode}
             options={[
               { value: 'overlay', label: 'Nakładka' },
               { value: 'echo', label: 'Echo 360°', disabled: !echoReady },
               { value: 'immersive', label: 'Immersja', disabled: !echoReady },
+              ...(walk ? [{ value: 'walk' as const, label: 'Spacer' }] : []),
             ]}
           />
-          {mode !== 'immersive' ? (
+          {effectiveMode === 'walk' && walk ? (
+            <View style={styles.walk}>
+              <Text style={styles.walkText}>
+                Idź przed siebie · {walkProgress.distanceM.toFixed(1)} / {walk.lengthM} m · kroki: {walkProgress.steps}
+              </Text>
+              <View style={styles.sliderRow}>
+                <Text style={styles.sliderLabel}>0 m</Text>
+                {/* Doubles as the progress bar and the manual fallback when there is no room to walk. */}
+                <Slider style={{ flex: 1 }} minimumValue={0} maximumValue={walk.lengthM} value={walkProgress.distanceM} onValueChange={walkProgress.setDistanceM} minimumTrackTintColor={Palette.ai} maximumTrackTintColor="rgba(255,255,255,0.3)" thumbTintColor={Palette.paper} />
+                <Text style={styles.sliderLabel}>{walk.lengthM} m</Text>
+              </View>
+            </View>
+          ) : mode !== 'immersive' ? (
             <View style={styles.sliderRow}>
               <Text style={styles.sliderLabel}>Dziś</Text>
               <Slider style={{ flex: 1 }} minimumValue={0} maximumValue={1} value={opacity} onValueChange={setOpacity} minimumTrackTintColor={Palette.sepiaLight} maximumTrackTintColor="rgba(255,255,255,0.3)" thumbTintColor={Palette.paper} />
@@ -198,9 +245,16 @@ export default function EchoScreen() {
             </View>
           ) : null}
           <View style={styles.actions}>
-            <Toggle label="AI" active={highlightAi} disabled={!echoReady || mode === 'overlay'} onPress={() => setHighlightAi((v) => !v)} />
+            <Toggle label="AI" active={highlightAi} disabled={!echoReady || effectiveMode === 'overlay' || effectiveMode === 'walk'} onPress={() => setHighlightAi((v) => !v)} />
             <Toggle label={speaking ? 'Stop' : 'Opowiedz'} active={speaking} onPress={narrate} />
-            <Toggle label="Na wprost" onPress={() => { setManualYawDeg(0); setAnchorToken((t) => t + 1); }} />
+            <Toggle
+              label={effectiveMode === 'walk' ? 'Od nowa' : 'Na wprost'}
+              onPress={() => {
+                if (effectiveMode === 'walk') walkProgress.reset();
+                setManualYawDeg(0);
+                setAnchorToken((t) => t + 1);
+              }}
+            />
             <Toggle label="Kalibruj" active={calibrating} onPress={() => setCalibrating((v) => !v)} />
           </View>
           {calibrating ? (
@@ -274,6 +328,8 @@ const styles = StyleSheet.create({
   save: { backgroundColor: Palette.sepia, borderRadius: Radius.pill, paddingVertical: 10, alignItems: 'center' },
   saveText: { color: Palette.white, fontWeight: '700' },
   attribution: { color: 'rgba(243,234,219,0.7)', fontSize: 10, fontStyle: 'italic' },
+  walk: { gap: Spacing.xs },
+  walkText: { color: Palette.paper, fontSize: 13, textAlign: 'center' },
   generate: { backgroundColor: Palette.paper, borderRadius: Radius.md, paddingVertical: 10, paddingHorizontal: Spacing.md, alignItems: 'center', gap: 2 },
   generateText: { color: Palette.ink, fontFamily: 'serif', fontSize: 16, fontWeight: '700' },
   generateHint: { color: Palette.inkSoft, fontSize: 11 },
