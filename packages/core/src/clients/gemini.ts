@@ -31,7 +31,7 @@ export async function editImage(opts: {
     ],
     response_format: {
       type: 'image',
-      mime_type: 'image/png',
+      mime_type: 'image/jpeg', // the only output type the Interactions API accepts for images
       aspect_ratio: opts.aspectRatio,
       image_size: opts.imageSize,
     },
