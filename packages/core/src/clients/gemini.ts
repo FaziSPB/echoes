@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { z } from 'zod';
+import { reserveImageGeneration } from '../budget';
 import { env } from '../env';
 
 let client: GoogleGenAI | undefined;
@@ -27,6 +28,7 @@ export async function editImage(opts: {
   imageSize: ImageSize;
   model?: string;
 }): Promise<Buffer> {
+  await reserveImageGeneration(); // throws BudgetExceededError before any money is spent
   const interaction = await ai().interactions.create({
     model: opts.model ?? env.GEMINI_IMAGE_MODEL,
     input: [

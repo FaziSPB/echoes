@@ -21,6 +21,12 @@ const Env = z.object({
   GEMINI_IMAGE_MODEL: z.string().default('gemini-nano-banana-2.1'),
   GEMINI_TEXT_MODEL: z.string().default('gemini-flash-latest'),
   ECHO_PIPELINE_VERSION: z.coerce.number().int().default(1),
+  /** Output size of the paid 4:1 generations (context pass is always 2K). 2K is plenty for a phone. */
+  ECHO_IMAGE_SIZE: z.enum(['1K', '2K', '4K']).default('2K'),
+  /** Extra generation that heals the 360° wrap seam (behind the viewer). Off = cheaper, visible seam at 180°. */
+  ECHO_SEAM_PASS: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
+  /** Hard cap on paid image generations per day (Europe/Warsaw), across all workers and CLI runs. */
+  ECHO_DAILY_IMAGE_LIMIT: z.coerce.number().int().min(0).default(10),
   TARGET_CITIES: z
     .string()
     .default('Wrocław')

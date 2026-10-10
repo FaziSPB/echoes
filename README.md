@@ -61,9 +61,17 @@ pnpm cli registry:geocode --city Wrocław
 pnpm cli seed:curated --city Wrocław
 pnpm dev:api                      # http://localhost:3000/docs
 pnpm dev:worker
-pnpm cli echo:pregen              # wygeneruj echa dla wszystkich zweryfikowanych zdjęć
+pnpm cli echo:pregen              # PŁATNE: echa dla zweryfikowanych zdjęć bez gotowej panoramy
 cd apps/mobile && npx expo start  # Expo Go na Androidzie (ta sama sieć Wi-Fi)
 ```
+
+### Koszty GenAI
+Jedno echo to 2 płatne obrazy (kontekst 2K + pas 360°), a z domykaniem szwu 3. Zabezpieczenia:
+- `ECHO_DAILY_IMAGE_LIMIT` (domyślnie 10): twardy dzienny limit dla wszystkich workerów i CLI, liczony atomowo w Redis.
+  Echo, które się nie zmieści, w ogóle nie startuje (`pnpm cli budget` pokazuje zużycie). `0` wyłącza generację.
+- `ECHO_IMAGE_SIZE=2K` (zamiast 4K) i `ECHO_SEAM_PASS=false`, gdy liczy się każdy grosz (szew zostaje za plecami widza).
+- Aplikacja generuje echo wyłącznie po kliknięciu „Wygeneruj Echo 360°”. Zwykłe otwarcie zdjęcia nic nie kosztuje.
+- `pnpm cli echo:recompose --photo <id>` przelicza kompozycję z zapisanych klatek, bez nowych generacji.
 
 Telefon poza siecią lokalną: wystaw API tunelem i ustaw `EXPO_PUBLIC_API_URL` na adres tunelu.
 Media idą przez `/media/*` z API (ścieżki względne), więc wystarczy jeden tunel. Pod CDN ustaw `PUBLIC_MEDIA_URL`.

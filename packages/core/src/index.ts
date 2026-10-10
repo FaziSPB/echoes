@@ -3,6 +3,7 @@ export * from './log';
 export * from './db';
 export * from './storage';
 export * from './queue';
+export * from './budget';
 export * from './repos/monuments';
 export * from './repos/photos';
 export * from './repos/echoes';

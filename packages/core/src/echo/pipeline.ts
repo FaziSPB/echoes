@@ -1,5 +1,6 @@
 import sharp from 'sharp';
-import { editImage, generateText, type ImageSize } from '../clients/gemini';
+import { BudgetExceededError, imageBudget } from '../budget';
+import { editImage, generateText } from '../clients/gemini';
 import { fetchWithRetry } from '../clients/http';
 import { env } from '../env';
 import { log } from '../log';
@@ -13,8 +14,9 @@ import { contextPrompt, narrationPrompt, outpaintPrompt, seamPrompt } from './pr
 
 /** 4:1 cylinder → 360° horizontally, 90° vertically. 4096 px is the safe max texture width on phones. */
 export const STRIP: StripSpec = { width: 4096, height: 1024 };
-const IMAGE_SIZE: ImageSize = (process.env.ECHO_IMAGE_SIZE as ImageSize | undefined) ?? '4K';
-const SEAM_PASS = process.env.ECHO_SEAM_PASS !== 'false';
+
+/** Paid image generations one echo needs (context + 360° strip + optional seam heal). */
+export const imagesPerEcho = () => (env.ECHO_SEAM_PASS ? 3 : 2);
 
 export async function loadPhotoImage(photo: PhotoRow): Promise<Buffer> {
   if (photo.imageKey) return getObjectBuffer(photo.imageKey);
@@ -46,48 +48,64 @@ export async function generatePanorama(
   prompts: { context: string; outpaint: string; seam: string },
   onStep: (step: 'outpaint' | 'seam' | 'compose') => Promise<void> = async () => {},
   debug: (name: string, img: Buffer) => Promise<void> = async () => {},
-  /** Previously generated frames (from debug/) – lets us iterate on compositing without paying for generation. */
-  reuse: { context?: Buffer; outpaint?: Buffer; seam?: Buffer } = {},
+  /**
+   * Previously generated frames (from debug/) – lets us iterate on compositing without paying for generation.
+   * With `generate: false` a missing frame is an error instead of a paid call.
+   */
+  reuse: { context?: Buffer; outpaint?: Buffer; seam?: Buffer; generate?: boolean } = {},
 ): Promise<EchoArtifacts> {
+  const generate = reuse.generate ?? true;
+  const paid = (what: string, call: () => Promise<Buffer>) => {
+    if (!generate) throw new Error(`recompose: missing ${what} frame, refusing to generate`);
+    return call();
+  };
   const meta = await sharp(image).metadata();
   const geometry = { width: meta.width!, height: meta.height!, hfovDeg: photo.hfovDeg, pitchDeg: photo.pitchDeg };
 
   await onStep('outpaint');
-  // Step 1 – context.
   const ctx = contextLayout(CONTEXT, geometry);
-  const contextCanvas = await buildCanvas(image, CONTEXT, ctx.rect);
-  await debug('canvas-context', contextCanvas);
-  const contextImg = await normalizeToStrip(
-    reuse.context ??
-      (await editImage({ prompt: prompts.context, images: [{ data: contextCanvas, mime: 'image/png' }], aspectRatio: '21:9', imageSize: '2K' })),
-    CONTEXT,
-  );
-  if (!reuse.context) await debug('context', contextImg);
-
-  // Step 2 – full 360° strip seeded with the context at its true angular size.
   const ctxInStrip = contextRectInStrip(STRIP, CONTEXT, ctx.coverageDeg);
   const rect = mapRectInto(ctx.rect, CONTEXT, ctxInStrip);
-  const stripCanvas = await buildCanvas(contextImg, STRIP, ctxInStrip);
-  await debug('canvas', stripCanvas);
-  const generated =
-    reuse.outpaint ??
-    (await editImage({ prompt: prompts.outpaint, images: [{ data: stripCanvas, mime: 'image/png' }], aspectRatio: '4:1', imageSize: IMAGE_SIZE }));
-  let pano = await normalizeToStrip(generated, STRIP);
-  if (!reuse.outpaint) await debug('outpaint', pano);
 
-  if (SEAM_PASS || reuse.seam) {
+  let generated = reuse.outpaint;
+  if (!generated) {
+    // Step 1 – context: the photo fills half of a 21:9 canvas.
+    const contextCanvas = await buildCanvas(image, CONTEXT, ctx.rect);
+    await debug('canvas-context', contextCanvas);
+    const contextImg = await normalizeToStrip(
+      reuse.context ??
+        (await paid('context', () =>
+          editImage({ prompt: prompts.context, images: [{ data: contextCanvas, mime: 'image/png' }], aspectRatio: '21:9', imageSize: '2K' }),
+        )),
+      CONTEXT,
+    );
+    if (!reuse.context) await debug('context', contextImg);
+
+    // Step 2 – full 360° strip seeded with the context at its true angular size.
+    const stripCanvas = await buildCanvas(contextImg, STRIP, ctxInStrip);
+    await debug('canvas', stripCanvas);
+    generated = await paid('outpaint', () =>
+      editImage({ prompt: prompts.outpaint, images: [{ data: stripCanvas, mime: 'image/png' }], aspectRatio: '4:1', imageSize: env.ECHO_IMAGE_SIZE }),
+    );
+    await debug('outpaint', await normalizeToStrip(generated, STRIP));
+  }
+  let pano = await normalizeToStrip(generated, STRIP);
+
+  if (reuse.seam || (generate && env.ECHO_SEAM_PASS)) {
     // The wrap seam sits at x=0; roll it to the centre, gray it out and let the model heal it.
     await onStep('seam');
     const band = Math.round(STRIP.width / 10);
     const rolled = await rollX(pano, STRIP.width / 2);
     const healed = await normalizeToStrip(
       reuse.seam ??
-        (await editImage({
-          prompt: prompts.seam,
-          images: [{ data: await grayBand(rolled, band), mime: 'image/png' }],
-          aspectRatio: '4:1',
-          imageSize: IMAGE_SIZE,
-        })),
+        (await paid('seam', async () =>
+          editImage({
+            prompt: prompts.seam,
+            images: [{ data: await grayBand(rolled, band), mime: 'image/png' }],
+            aspectRatio: '4:1',
+            imageSize: env.ECHO_IMAGE_SIZE,
+          }),
+        )),
       STRIP,
     );
     if (!reuse.seam) await debug('seam', healed);
@@ -117,13 +135,18 @@ export async function runEcho(echoId: string, opts: { recompose?: boolean } = {}
   const monument = photo.monumentInspireId ? await getMonument(photo.monumentInspireId) : null;
 
   try {
+    // Fail fast instead of paying for 2 of 3 images and then hitting the cap.
+    if (!opts.recompose) {
+      const budget = await imageBudget();
+      if (budget.remaining < imagesPerEcho()) throw new BudgetExceededError(budget.used, budget.limit);
+    }
     await updateEcho(echoId, { status: 'running', step: 'prepare', error: null });
     const image = await loadPhotoImage(photo);
 
     const base = `echoes/${photo.id}/v${echo.pipelineVersion}`;
     const reuse = opts.recompose
       ? {
-          context: await getObjectBuffer(`${base}/debug/context.jpg`).catch(() => undefined),
+          generate: false,
           outpaint: await getObjectBuffer(`${base}/debug/outpaint.jpg`),
           seam: await getObjectBuffer(`${base}/debug/seam.jpg`).catch(() => undefined),
         }

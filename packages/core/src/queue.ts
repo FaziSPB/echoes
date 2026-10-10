@@ -20,7 +20,7 @@ export function getEchoQueue(): Queue<EchoJobData> {
   echoQueue ??= new Queue<EchoJobData>(ECHO_QUEUE, {
     connection: echoQueueConnection,
     defaultJobOptions: {
-      attempts: 3,
+      attempts: 2, // every retry re-runs paid generations; budget errors are never retried
       backoff: { type: 'exponential', delay: 5_000 },
       removeOnComplete: 1000,
       removeOnFail: 1000,
