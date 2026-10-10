@@ -91,6 +91,27 @@ export const EchoDto = z.object({
 });
 export type EchoDto = z.infer<typeof EchoDto>;
 
+/* ---------- walks ("spacer w czasie") ---------- */
+
+export const WalkFrame = z.object({
+  distanceM: z.number(),
+  imageUrl: z.string(),
+  /** false = the archival original (frame 0), true = AI reconstruction. */
+  generated: z.boolean(),
+});
+export type WalkFrame = z.infer<typeof WalkFrame>;
+
+export const WalkDto = z.object({
+  id: z.string(),
+  photoId: z.string(),
+  status: z.enum(['running', 'done', 'failed']),
+  lengthM: z.number(),
+  subjectDistanceM: z.number(),
+  frames: z.array(WalkFrame),
+  error: z.string().nullable(),
+});
+export type WalkDto = z.infer<typeof WalkDto>;
+
 /* ---------- photos ---------- */
 
 export const PhotoSummary = z.object({
@@ -126,6 +147,7 @@ export const PhotoDetail = PhotoSummary.extend({
   status: PhotoStatus,
   monument: MonumentBrief.nullable(),
   echo: EchoDto.nullable(),
+  walk: WalkDto.nullable(),
 });
 export type PhotoDetail = z.infer<typeof PhotoDetail>;
 
