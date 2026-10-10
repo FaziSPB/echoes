@@ -18,37 +18,57 @@ export async function normalizeToStrip(img: Buffer, strip: StripSpec): Promise<B
   return sharp(img).resize(strip.width, strip.height, { fit: 'fill' }).removeAlpha().png().toBuffer();
 }
 
-/** Is the archival photo effectively monochrome (B&W or sepia)? */
-export async function isMonochrome(photo: Buffer): Promise<boolean> {
-  const { channels } = await sharp(photo).stats();
-  if (channels.length < 3) return true;
-  const [r, g, b] = channels.map((c) => c.mean) as [number, number, number];
-  return Math.max(Math.abs(r - g), Math.abs(g - b), Math.abs(r - b)) < 12;
+type ChannelStats = { mean: [number, number, number]; std: [number, number, number] };
+
+/** BT.601 YCbCr (chroma centred on 0) – a cheap, linear space that separates tone from colour. */
+function toYcc(r: number, g: number, b: number): [number, number, number] {
+  return [0.299 * r + 0.587 * g + 0.114 * b, -0.168736 * r - 0.331264 * g + 0.5 * b, 0.5 * r - 0.418688 * g - 0.081312 * b];
 }
 
-/** Average tint of a photo, used to re-tone a monochrome panorama so AI areas match the print. */
-async function averageTint(photo: Buffer): Promise<{ r: number; g: number; b: number }> {
-  const { channels } = await sharp(photo).stats();
-  if (channels.length < 3) return { r: 1, g: 1, b: 1 };
-  const means = channels.slice(0, 3).map((c) => c.mean);
-  const avg = (means[0]! + means[1]! + means[2]!) / 3 || 1;
-  return { r: means[0]! / avg, g: means[1]! / avg, b: means[2]! / avg };
+function yccStats(rgb: Buffer): ChannelStats {
+  const sum = [0, 0, 0];
+  const sq = [0, 0, 0];
+  const n = rgb.length / 3;
+  for (let i = 0; i < rgb.length; i += 3) {
+    const c = toYcc(rgb[i]!, rgb[i + 1]!, rgb[i + 2]!);
+    for (let k = 0; k < 3; k++) {
+      sum[k]! += c[k]!;
+      sq[k]! += c[k]! * c[k]!;
+    }
+  }
+  const mean = sum.map((v) => v / n) as [number, number, number];
+  const std = sq.map((v, k) => Math.sqrt(Math.max(0, v / n - mean[k]! ** 2))) as [number, number, number];
+  return { mean, std };
 }
 
-/** For monochrome sources, force the generated panorama to the same tonality (models like to colourise). */
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/**
+ * Reinhard-style statistics transfer so AI areas share the print's tonality: chroma is matched fully
+ * (B&W print → grey panorama, sepia → sepia, photochrom → its palette), luminance only gently
+ * (the panorama legitimately contains more sky and ground than the photo).
+ */
 export async function matchTone(pano: Buffer, photo: Buffer): Promise<Buffer> {
-  if (!(await isMonochrome(photo))) return pano;
-  const t = await averageTint(photo);
-  return sharp(pano)
-    .grayscale()
-    .toColourspace('srgb')
-    .recomb([
-      [t.r, 0, 0],
-      [0, t.g, 0],
-      [0, 0, t.b],
-    ])
-    .png()
-    .toBuffer();
+  const ref = await sharp(photo).resize(256, 256, { fit: 'inside' }).removeAlpha().toColourspace('srgb').raw().toBuffer();
+  const src = yccStats(ref);
+  const { data, info } = await sharp(pano).removeAlpha().toColourspace('srgb').raw().toBuffer({ resolveWithObject: true });
+  const dst = yccStats(data);
+
+  const kY = clamp(src.std[0] / (dst.std[0] || 1), 0.8, 1.25);
+  const mY = dst.mean[0] + 0.5 * (src.mean[0] - dst.mean[0]);
+  const kC = [1, 2].map((k) => clamp(src.std[k]! / (dst.std[k]! || 1), 0, 1.5));
+
+  const out = Buffer.alloc(data.length);
+  for (let i = 0; i < data.length; i += 3) {
+    const [y, cb, cr] = toYcc(data[i]!, data[i + 1]!, data[i + 2]!);
+    const Y = (y - dst.mean[0]) * kY + mY;
+    const Cb = (cb - dst.mean[1]) * kC[0]! + src.mean[1];
+    const Cr = (cr - dst.mean[2]) * kC[1]! + src.mean[2];
+    out[i] = clamp(Math.round(Y + 1.402 * Cr), 0, 255);
+    out[i + 1] = clamp(Math.round(Y - 0.344136 * Cb - 0.714136 * Cr), 0, 255);
+    out[i + 2] = clamp(Math.round(Y + 1.772 * Cb), 0, 255);
+  }
+  return sharp(out, { raw: { width: info.width, height: info.height, channels: 3 } }).png().toBuffer();
 }
 
 /** Soft-edged white rectangle on black, used as an alpha mask. */

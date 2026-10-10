@@ -9,6 +9,7 @@
  *   pnpm cli seed:curated [--city Wrocław]
  *   pnpm cli echo:generate --photo <uuid>      (enqueue; --sync to run inline)
  *   pnpm cli echo:pregen [--sync]              (all verified photos)
+ *   pnpm cli echo:recompose --photo <uuid>     (re-run compositing from saved frames, no GenAI cost)
  *   pnpm cli smoke:gemini
  */
 import { parseArgs } from 'node:util';
@@ -22,6 +23,7 @@ import {
   geocodeMonuments,
   geoparseCandidates,
   generateText,
+  getEchoForPhoto,
   getEchoQueue,
   harvestCommons,
   linkPhotosToMonuments,
@@ -72,6 +74,12 @@ const commands: Record<string, () => Promise<unknown>> = {
   'echo:generate': async () => {
     if (!values.photo) throw new Error('--photo <uuid> required');
     await generate(values.photo);
+  },
+  'echo:recompose': async () => {
+    if (!values.photo) throw new Error('--photo <uuid> required');
+    const echo = await getEchoForPhoto(values.photo);
+    if (!echo) throw new Error('no echo for this photo yet');
+    await runEcho(echo.id, { recompose: true });
   },
   'echo:pregen': async () => {
     const rows = await sql<{ id: string }[]>`select id from archival_photos where status = 'verified' and location is not null`;

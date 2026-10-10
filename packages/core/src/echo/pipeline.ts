@@ -7,7 +7,7 @@ import { getEcho, updateEcho } from '../repos/echoes';
 import { getMonument } from '../repos/monuments';
 import { getPhotoRow, type PhotoRow } from '../repos/photos';
 import { getObjectBuffer, putObject } from '../storage';
-import { buildCanvas, edgeColors, grayBand, isMonochrome, matchTone, mergeBand, normalizeToStrip, repastePhoto, rollX, toJpeg } from './compose';
+import { buildCanvas, edgeColors, grayBand, matchTone, mergeBand, normalizeToStrip, repastePhoto, rollX, toJpeg } from './compose';
 import { photoRectInStrip, type StripSpec } from './geometry';
 import { narrationPrompt, outpaintPrompt, seamPrompt } from './prompts';
 
@@ -38,6 +38,8 @@ export async function generatePanorama(
   prompts: { outpaint: string; seam: string },
   onStep: (step: 'outpaint' | 'seam' | 'compose') => Promise<void> = async () => {},
   debug: (name: string, img: Buffer) => Promise<void> = async () => {},
+  /** Previously generated frames (from debug/) – lets us iterate on compositing without paying for generation. */
+  reuse: { outpaint?: Buffer; seam?: Buffer } = {},
 ): Promise<EchoArtifacts> {
   const meta = await sharp(image).metadata();
   const rect = photoRectInStrip(STRIP, {
@@ -50,46 +52,49 @@ export async function generatePanorama(
   await debug('canvas', canvas);
 
   await onStep('outpaint');
-  const generated = await editImage({
-    prompt: prompts.outpaint,
-    images: [{ data: canvas, mime: 'image/png' }],
-    aspectRatio: '4:1',
-    imageSize: IMAGE_SIZE,
-  });
+  const generated =
+    reuse.outpaint ??
+    (await editImage({
+      prompt: prompts.outpaint,
+      images: [{ data: canvas, mime: 'image/png' }],
+      aspectRatio: '4:1',
+      imageSize: IMAGE_SIZE,
+    }));
   let pano = await normalizeToStrip(generated, STRIP);
-  await debug('outpaint', pano);
+  if (!reuse.outpaint) await debug('outpaint', pano);
 
-  if (SEAM_PASS) {
+  if (SEAM_PASS || reuse.seam) {
     // The wrap seam sits at x=0; roll it to the centre, gray it out and let the model heal it.
     await onStep('seam');
     const band = Math.round(STRIP.width / 10);
     const rolled = await rollX(pano, STRIP.width / 2);
     const healed = await normalizeToStrip(
-      await editImage({
-        prompt: prompts.seam,
-        images: [{ data: await grayBand(rolled, band), mime: 'image/png' }],
-        aspectRatio: '4:1',
-        imageSize: IMAGE_SIZE,
-      }),
+      reuse.seam ??
+        (await editImage({
+          prompt: prompts.seam,
+          images: [{ data: await grayBand(rolled, band), mime: 'image/png' }],
+          aspectRatio: '4:1',
+          imageSize: IMAGE_SIZE,
+        })),
       STRIP,
     );
-    await debug('seam', healed);
+    if (!reuse.seam) await debug('seam', healed);
     pano = await rollX(await mergeBand(rolled, healed, band), -STRIP.width / 2);
   }
 
   await onStep('compose');
   pano = await matchTone(pano, image);
-  pano = await repastePhoto(pano, image, rect, Math.round(rect.w * 0.03));
+  pano = await repastePhoto(pano, image, rect, Math.round(rect.w * 0.06));
   const { sky, ground } = await edgeColors(pano);
   return { pano, photoRect: rect, sky, ground };
 }
 
 /** Worker entry point: runs one echo end-to-end and persists every step for the app's progress UI. */
-export async function runEcho(echoId: string): Promise<void> {
+export async function runEcho(echoId: string, opts: { recompose?: boolean } = {}): Promise<void> {
   const started = Date.now();
   const echo = await getEcho(echoId);
   if (!echo) throw new Error(`echo ${echoId} not found`);
-  if (echo.status === 'done') return;
+  if (echo.status === 'done' && !opts.recompose) return;
 
   const photo = await getPhotoRow(echo.photoId);
   if (!photo) throw new Error(`photo ${echo.photoId} not found`);
@@ -98,23 +103,31 @@ export async function runEcho(echoId: string): Promise<void> {
   try {
     await updateEcho(echoId, { status: 'running', step: 'prepare', error: null });
     const image = await loadPhotoImage(photo);
-    const monochrome = await isMonochrome(image);
 
     const base = `echoes/${photo.id}/v${echo.pipelineVersion}`;
+    const reuse = opts.recompose
+      ? {
+          outpaint: await getObjectBuffer(`${base}/debug/outpaint.jpg`),
+          seam: await getObjectBuffer(`${base}/debug/seam.jpg`).catch(() => undefined),
+        }
+      : {};
     const art = await generatePanorama(
       photo,
       image,
-      { outpaint: outpaintPrompt(photo, monument, monochrome), seam: seamPrompt(monochrome) },
+      { outpaint: outpaintPrompt(photo, monument), seam: seamPrompt() },
       (step) => updateEcho(echoId, { step }),
       // Intermediate frames help tune prompts; cheap compared to the generation itself.
-      async (name, img) => putObject(`${base}/debug/${name}.jpg`, await toJpeg(img, 2048, 80), 'image/jpeg'),
+      async (name, img) => putObject(`${base}/debug/${name}.jpg`, await toJpeg(img, undefined, 92), 'image/jpeg'),
+      reuse,
     );
 
     await updateEcho(echoId, { step: 'narration' });
-    const narration = await generateText(narrationPrompt(photo, monument)).catch((err) => {
-      log.warn({ err: String(err) }, 'narration failed – continuing without it');
-      return null;
-    });
+    const narration =
+      (opts.recompose ? echo.narration : null) ??
+      (await generateText(narrationPrompt(photo, monument)).catch((err) => {
+        log.warn({ err: String(err) }, 'narration failed – continuing without it');
+        return null;
+      }));
 
     await updateEcho(echoId, { step: 'upload' });
     await putObject(`${base}/pano.jpg`, await toJpeg(art.pano, undefined, 88), 'image/jpeg');
