@@ -30,6 +30,9 @@ export const CuratedPhoto = z
     hfovDeg: z.number().min(10).max(150).default(55),
     pitchDeg: z.number().default(0),
     monumentInspireId: z.string().nullable().default(null),
+    /** Fractions of the source image to keep – strips postcard margins and printed captions. */
+    crop: z.object({ left: z.number(), top: z.number(), width: z.number(), height: z.number() }).optional(),
+    note: z.string().optional(),
   })
   .refine((p) => p.file || p.remoteUrl, 'either file or remoteUrl is required');
 export type CuratedPhoto = z.infer<typeof CuratedPhoto>;
@@ -42,6 +45,15 @@ const slug = (s: string) =>
     .replace(/^-|-$/g, '')
     .toLowerCase()
     .slice(0, 80);
+
+async function cropFractions(img: Buffer, c: { left: number; top: number; width: number; height: number }): Promise<Buffer> {
+  const { width = 0, height = 0 } = await sharp(img).metadata();
+  const left = Math.round(c.left * width);
+  const top = Math.round(c.top * height);
+  return sharp(img)
+    .extract({ left, top, width: Math.min(Math.round(c.width * width), width - left), height: Math.min(Math.round(c.height * height), height - top) })
+    .toBuffer();
+}
 
 async function loadImage(p: CuratedPhoto, baseDir: string): Promise<Buffer> {
   if (p.file) return readFile(resolve(baseDir, p.file));
@@ -56,9 +68,10 @@ export async function seedCurated(jsonPath: string, city: string) {
   const baseDir = dirname(jsonPath);
   const items = z.array(CuratedPhoto).parse(JSON.parse(await readFile(jsonPath, 'utf8')));
   for (const p of items) {
-    const raw = await loadImage(p, baseDir);
-    // Normalise orientation/size once; the original stays in the archive, we keep a 2400 px working copy.
-    const image = await sharp(raw).rotate().resize({ width: 2400, height: 2400, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 90 }).toBuffer();
+    const raw = await sharp(await loadImage(p, baseDir)).rotate().toBuffer();
+    const cropped = p.crop ? await cropFractions(raw, p.crop) : raw;
+    // Normalise size once; the original stays in the archive, we keep a 2400 px working copy.
+    const image = await sharp(cropped).resize({ width: 2400, height: 2400, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 90 }).toBuffer();
     const thumb = await sharp(image).resize({ width: 480 }).jpeg({ quality: 78 }).toBuffer();
     const meta = await sharp(image).metadata();
     const key = `photos/${slug(p.sourceRef)}`;
