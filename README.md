@@ -65,6 +65,18 @@ pnpm cli echo:pregen              # PŁATNE: echa dla zweryfikowanych zdjęć be
 cd apps/mobile && npx expo start  # Expo Go na Androidzie (ta sama sieć Wi-Fi)
 ```
 
+### Paczka demo (bez ponownego generowania)
+Wygenerowane panoramy i klatki spaceru leżą w S3 i w bazie, a nie w repozytorium.
+Żeby przenieść je na inny komputer bez płacenia za generowanie:
+```bash
+pnpm cli demo:export              # → data/demo/echoes-demo.tar.gz (~22 MB; --with-debug dodaje klatki pośrednie do recompose)
+pnpm cli demo:import              # na docelowej maszynie (po docker compose up); --file <ścieżka> dla innej lokalizacji
+```
+Paczka zawiera zweryfikowane zdjęcia z pozycją i kierunkiem, gotowe echa (z narracją), trasy spaceru,
+powiązane zabytki i wszystkie pliki, do których się odwołują. Import jest idempotentny i dopasowuje zdjęcia
+po `(source, source_ref)`, więc działa też po `seed:curated`. Rejestr NID i geokodowanie odtwarzasz za darmo poleceniami z sekcji wyżej.
+Paczkę udostępnij jako załącznik GitHub Release (folder `data/demo/` jest w `.gitignore`).
+
 ### Koszty GenAI
 Jedno echo to 2 płatne obrazy (kontekst 2K + pas 360°), a z domykaniem szwu 3. Zabezpieczenia:
 - `ECHO_DAILY_IMAGE_LIMIT` (domyślnie 10): twardy dzienny limit dla wszystkich workerów i CLI, liczony atomowo w Redis.
