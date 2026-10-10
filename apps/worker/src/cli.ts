@@ -11,7 +11,7 @@
  *   pnpm cli echo:pregen [--sync]              (PAID: verified photos without any finished panorama)
  *   pnpm cli echo:recompose --photo <uuid>     (re-run compositing from saved frames, no GenAI cost)
  *   pnpm cli queue:drain                       (drop waiting jobs, e.g. before a pipeline bump)
- *   pnpm cli walk:generate --photo <uuid> [--frames 3] [--length 10] [--subject-distance 28]  (PAID: N images)
+ *   pnpm cli walk:generate --photo <uuid> [--frames 3] [--length 10] [--subject-distance 28] [--from-frame 2]  (PAID: one image per regenerated frame)
  *   pnpm cli budget                            (paid image generations used today / daily limit)
  *   pnpm cli smoke:gemini
  */
@@ -53,6 +53,7 @@ const { positionals, values } = parseArgs({
     frames: { type: 'string' },
     length: { type: 'string' },
     'subject-distance': { type: 'string' },
+    'from-frame': { type: 'string' },
     force: { type: 'boolean', default: false },
     sync: { type: 'boolean', default: false },
   },
@@ -98,6 +99,7 @@ const commands: Record<string, () => Promise<unknown>> = {
       frames: num(values.frames),
       lengthM: num(values.length),
       subjectDistanceM: num(values['subject-distance']),
+      fromFrame: num(values['from-frame']),
     });
     log.info({ budget: await imageBudget() }, 'budget after walk');
     return result;

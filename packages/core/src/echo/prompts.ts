@@ -64,17 +64,20 @@ ${photo.author ? `Autor zdjęcia: ${photo.author}` : ''}
 }
 
 export function walkStepPrompt(photo: PhotoRow, monument: MonumentBrief | null, atM: number, stepM: number): string {
-  return `You are reconstructing a short walk through a historical scene, one photograph at a time.
+  return `You are restoring one photograph of a short walk through a historical scene.
 
-Image 1 is the view from the previous point, digitally enlarged to simulate the camera moving ${stepM.toFixed(1)} m forward, so it looks soft.
-Image 2 is the authentic archival photograph taken at the start of the walk – use it as the reference for era, architecture, colours, tonality and grain.
+Image 1 is ALREADY the correct view from the new position, ${atM.toFixed(1)} m from where the archival photograph was taken:
+it was made by enlarging the previous view to simulate walking only ${stepM.toFixed(1)} m forward, so every object is
+already at the right size and place – it is just soft from the enlargement.
+Image 2 is the authentic archival photograph from the start of the walk – use it only as the reference for era,
+architecture, colours, tonality and grain.
 
 ${sceneFacts(photo, monument)}
 
-Produce the sharp photograph taken from the new position, ${atM.toFixed(1)} m forward from where the archival photograph was taken, walking straight ahead in the same direction.
-Requirements:
-- Keep the framing and horizon of image 1. Nearby things (statues, lamp posts, railings, pavement, people, carriages) appear larger and drift slightly towards the edges as we pass them; distant buildings and towers stay almost unchanged.
-- Restore fine detail in a way consistent with image 2; do not invent new landmarks.
-- People and vehicles of the period may have moved naturally since the previous view.
+Re-render image 1 as a sharp photograph:
+- Keep the framing, horizon, perspective and the position and size of every object exactly as in image 1.
+  Do not move the camera any further forward or back, do not zoom, do not walk under or past anything that is still ahead in image 1.
+- Only restore fine detail (textures, edges, faces, ironwork, foliage) consistent with image 2. Do not add or remove landmarks.
+- People of the period may shift slightly, as a moment later.
 - Same era (${decade(photo.yearFrom)}), same tonality as image 2. No modern objects, no text, no borders, one continuous photograph.`;
 }
