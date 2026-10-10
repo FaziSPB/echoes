@@ -17,6 +17,7 @@
  *   pnpm cli budget                            (paid image generations used today / daily limit)
  *   pnpm cli smoke:gemini
  */
+import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import {
@@ -70,6 +71,8 @@ const { positionals, values } = parseArgs({
 const city = values.city ?? env.TARGET_CITIES[0]!;
 /** Default demo bundle location (git-ignored; share it as a GitHub Release asset). */
 const DEMO_FILE = fileURLToPath(new URL('../../../data/demo/echoes-demo.tar.gz', import.meta.url));
+/** pnpm runs the CLI inside apps/worker; resolve user-given paths against the directory the command was typed in. */
+const userPath = (p: string) => resolve(process.env.INIT_CWD ?? process.cwd(), p);
 const num = (v: string | undefined) => (v ? Number(v) : undefined);
 
 async function generate(photoId: string) {
@@ -114,8 +117,8 @@ const commands: Record<string, () => Promise<unknown>> = {
     log.info({ budget: await imageBudget() }, 'budget after walk');
     return result;
   },
-  'demo:export': () => exportDemo(values.out ?? DEMO_FILE, { withDebug: values['with-debug'] }),
-  'demo:import': () => importDemo(values.file ?? DEMO_FILE),
+  'demo:export': () => exportDemo(values.out ? userPath(values.out) : DEMO_FILE, { withDebug: values['with-debug'] }),
+  'demo:import': () => importDemo(values.file ? userPath(values.file) : DEMO_FILE),
   'echo:pregen': async () => {
     // Paid: only photos without any finished panorama (an older pipeline version counts as done).
     const rows = await sql<{ id: string }[]>`
