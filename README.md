@@ -81,8 +81,13 @@ Przejdź ok. 10 m, a przeszłość idzie razem z Tobą:
 - **Klatka 0** to oryginał archiwalny.
 - **Klatki 3,3 / 6,7 / 10 m** wygenerowało AI łańcuchowo. Poprzednia klatka jest przybliżana o czynnik `D/(D−krok)` (model kamery otworkowej, `D` = odległość do zabytku z rejestru), a Gemini renderuje widok z nowego punktu, z oryginałem jako wzorcem stylu.
 - **Pozycja:** GPS (±5–10 m) jest za mało dokładny, więc aplikacja liczy kroki z akcelerometru, tylko gdy patrzysz wzdłuż trasy (PDR). Działa tak samo na moście i na sali.
-- **Wyświetlanie:** klatka za Tobą jest przybliżana, klatka przed Tobą płynnie się przenika. Plakietka pokazuje „oryginał” albo „rekonstrukcja AI”.
+- **Wyświetlanie:** przełącznik „Spacer” wewnątrz Echa 360°. Klatki leżą na walcu panoramy dokładnie na archiwalnym fragmencie
+  (klatka k pomniejszona o `(D−d_k)/D`), a kamera przesuwa się w przód o `d/D·R`. Panorama dostaje paralaksę,
+  a każda klatka w swoim punkcie ma kadr oryginału (zgodność do 0,4°). Kolejne klatki płynnie się przenikają.
+- **Rzetelność:** plakietka „oryginał” albo „rekonstrukcja AI”, a „Pokaż AI” podświetla klatki AI w całości.
 - **Awaryjnie:** suwak dystansu.
+- **Poprawki klatek:** `--from-frame k` regeneruje tylko klatki od k (z zachowaniem wcześniejszych). Log pokazuje
+  `compositionScore` (korelację z przybliżonym poprzednikiem), a wynik < 0,65 oznacza, że model „odszedł” od geometrii.
 
 Trasa jest generowana tylko z CLI (API nie ma takiego endpointu):
 `pnpm cli walk:generate --photo <id> --frames 3 --length 10`, czyli 3 płatne obrazy 2K.

@@ -10,12 +10,15 @@ Istniejące rozwiązania (np. Historypin) przypinają statyczne zdjęcia do mapy
 ## Rozwiązanie
 **Echoes** zamienia archiwalne zdjęcie w miejsce, do którego można wejść:
 1. **Mapa ech:** zabytki z rejestru NID i archiwalne zdjęcia przypięte do miejsc, z których je zrobiono.
-2. **Nakładka AR:** w punkcie Echo kamera telefonu pokazuje teraźniejszość, a suwak czasu płynnie odsłania przeszłość
-   w tym samym kadrze (orientacja z żyroskopu i kompasu, kalibracja jednym gestem).
-3. **Echo 360°:** GenAI rozszerza kadr do pełnej panoramy. Obracasz się i stoisz w 1910 roku.
+2. **Echo 360° w AR:** w punkcie Echo kamera telefonu pokazuje teraźniejszość, a suwak czasu płynnie odsłania przeszłość.
+   GenAI rozszerza archiwalny kadr do pełnej panoramy: obracasz się i stoisz w 1900 roku
+   (orientacja z fuzji żyroskopu i czujnika absolutnego, kalibracja jednym gestem).
+3. **Spacer w czasie:** przejdź 10 m, a przeszłość idzie z Tobą. Kroki liczy akcelerometr, a AI dogenerowało widoki
+   z kolejnych punktów trasy, wychodząc od prawdziwego zdjęcia.
 4. **Narracja:** krótka opowieść po polsku generowana wyłącznie z faktów (rejestr + opis archiwalny), czytana na głos.
 
-**Rzetelność historyczna:** piksele oryginału są zawsze nienaruszone, a przełącznik „AI” podświetla wszystko, co zrekonstruował model.
+**Rzetelność historyczna:** piksele oryginału są zawsze nienaruszone, a przycisk „Pokaż AI” podświetla wszystko,
+co zrekonstruował model, także klatki spaceru.
 Każde zdjęcie ma sygnaturę i źródło.
 
 ## Technologia (działający kod, nie makieta)
