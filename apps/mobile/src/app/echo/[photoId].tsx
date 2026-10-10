@@ -277,7 +277,11 @@ export default function EchoScreen() {
 function EchoStatusChip({ status, step, error }: { status?: string; step?: string | null; error?: string | null }) {
   if (status === 'done') return <Text style={[styles.chip, styles.chipAi]}>Echo 360° gotowe</Text>;
   if (status === 'failed' || (!status && error)) {
-    const reason = error?.includes('limit') ? 'dzienny limit generacji wyczerpany' : 'generowanie nie powiodło się';
+    const reason = error?.includes('limit')
+      ? 'dzienny limit generacji wyczerpany'
+      : error && /\b402\b|billing|payment required/i.test(error)
+        ? 'brak płatności w Gemini (402), sprawdź Billing w Google AI Studio'
+        : 'generowanie nie powiodło się';
     return <Text style={[styles.chip, styles.chipWarn]}>Echo 360°: {reason}</Text>;
   }
   if (status === 'queued' || status === 'running')

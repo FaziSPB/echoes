@@ -1,5 +1,5 @@
 import { UnrecoverableError, Worker } from 'bullmq';
-import { BudgetExceededError, closeBudget, ECHO_QUEUE, ensureBucket, log, migrate, redisConnection, runEcho, sql, type EchoJobData } from '@echoes/core';
+import { BudgetExceededError, closeBudget, ECHO_QUEUE, ensureBucket, GeminiBillingError, log, migrate, redisConnection, runEcho, sql, type EchoJobData } from '@echoes/core';
 
 await migrate();
 await ensureBucket();
@@ -15,8 +15,8 @@ const echoWorker = new Worker<EchoJobData>(
     try {
       await runEcho(job.data.echoId);
     } catch (err) {
-      // Retrying cannot help when today's budget is spent – fail the job for good.
-      if (err instanceof BudgetExceededError) throw new UnrecoverableError(err.message);
+      // Retrying cannot help when today's budget is spent or billing is down – fail the job for good.
+      if (err instanceof BudgetExceededError || err instanceof GeminiBillingError) throw new UnrecoverableError(err.message);
       throw err;
     }
   },
