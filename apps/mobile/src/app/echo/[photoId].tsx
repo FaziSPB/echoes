@@ -15,7 +15,7 @@ import { Palette, Radius, Spacing } from '@/constants/theme';
 import { useDevicePose } from '@/hooks/use-device-pose';
 import { useUserLocation } from '@/hooks/use-user-location';
 import { api } from '@/lib/api';
-import { ADMIN_TOKEN, ON_SITE_RADIUS_M } from '@/lib/config';
+import { ADMIN_TOKEN, ON_SITE_RADIUS_M, resolveMediaUrl } from '@/lib/config';
 
 const STEP_LABELS: Record<string, string> = {
   queued: 'w kolejce',
@@ -139,10 +139,10 @@ export default function EchoScreen() {
           manualYawDeg={manualYawDeg}
           opacity={opacity}
           highlightAi={highlightAi}
-          photo={{ url: photo.imageUrl, width: photo.width, height: photo.height, hfovDeg: photo.hfovDeg, pitchDeg: photo.pitchDeg, headingDeg: photo.headingDeg ?? 0 }}
+          photo={{ url: resolveMediaUrl(photo.imageUrl)!, width: photo.width, height: photo.height, hfovDeg: photo.hfovDeg, pitchDeg: photo.pitchDeg, headingDeg: photo.headingDeg ?? 0 }}
           echo={
             echoReady
-              ? { panoUrl: echo.panoUrl!, panoWidth: echo.panoWidth ?? 4096, panoHeight: echo.panoHeight ?? 1024, photoRect: echo.photoRect!, skyColor: echo.skyColor, groundColor: echo.groundColor }
+              ? { panoUrl: resolveMediaUrl(echo.panoUrl)!, panoWidth: echo.panoWidth ?? 4096, panoHeight: echo.panoHeight ?? 1024, photoRect: echo.photoRect!, skyColor: echo.skyColor, groundColor: echo.groundColor }
               : null
           }
           onRelativeYaw={setRelativeYaw}

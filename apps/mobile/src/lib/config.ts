@@ -11,6 +11,12 @@ function defaultApiUrl(): string {
 
 export const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? defaultApiUrl()).replace(/\/$/, '');
 
+/** Media URLs from the API may be relative (`/media/...`) – resolve them against the API origin. */
+export function resolveMediaUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  return /^https?:\/\//.test(url) ? url : `${API_URL}${url}`;
+}
+
 /** Demo-only curation token (calibration mode). Never ship a real secret in a client bundle. */
 export const ADMIN_TOKEN = process.env.EXPO_PUBLIC_ADMIN_TOKEN ?? '';
 

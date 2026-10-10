@@ -2,6 +2,7 @@ import type { PhotoSummary } from '@echoes/shared';
 import { Image } from 'expo-image';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Palette, Radius, Spacing } from '@/constants/theme';
+import { resolveMediaUrl } from '@/lib/config';
 
 export function formatDistance(m: number | undefined): string | null {
   if (m === undefined) return null;
@@ -12,7 +13,7 @@ export function PhotoCard({ photo, onPress, compact = false }: { photo: PhotoSum
   const distance = formatDistance(photo.distanceM);
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.card, pressed && { opacity: 0.85 }]}>
-      <Image source={photo.thumbUrl ?? undefined} style={[styles.thumb, compact && styles.thumbCompact]} contentFit="cover" transition={200} />
+      <Image source={resolveMediaUrl(photo.thumbUrl) ?? undefined} style={[styles.thumb, compact && styles.thumbCompact]} contentFit="cover" transition={200} />
       <View style={styles.body}>
         <Text style={styles.year}>{photo.yearLabel ?? 'data nieznana'}</Text>
         <Text style={styles.title} numberOfLines={2}>

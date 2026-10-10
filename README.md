@@ -65,8 +65,8 @@ pnpm cli echo:pregen              # wygeneruj echa dla wszystkich zweryfikowanyc
 cd apps/mobile && npx expo start  # Expo Go na Androidzie (ta sama sieć Wi-Fi)
 ```
 
-Telefon poza siecią lokalną: wystaw API tunelem i ustaw `EXPO_PUBLIC_API_URL` oraz `PUBLIC_BASE_URL` na adres tunelu.
-Media idą przez `/media/*` z API, więc wystarczy jeden tunel.
+Telefon poza siecią lokalną: wystaw API tunelem i ustaw `EXPO_PUBLIC_API_URL` na adres tunelu.
+Media idą przez `/media/*` z API (ścieżki względne), więc wystarczy jeden tunel. Pod CDN ustaw `PUBLIC_MEDIA_URL`.
 
 Pozostałe polecenia CLI: `photos:harvest-commons`, `photos:geoparse`, `photos:link`, `echo:generate --photo <id> [--sync]`, `smoke:gemini`.
 

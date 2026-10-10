@@ -52,7 +52,10 @@ export async function getObjectBuffer(key: string): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-/** Media is served through the API (`/media/*`) so the phone needs a single public origin. */
+/**
+ * Media is served through the API (`/media/*`) or a CDN in front of it. Without PUBLIC_MEDIA_URL we return
+ * relative paths, so the same response works over LAN, a tunnel or localhost.
+ */
 export function mediaUrl(key: string | null | undefined): string | null {
-  return key ? `${env.PUBLIC_BASE_URL.replace(/\/$/, '')}/media/${key}` : null;
+  return key ? `${env.PUBLIC_MEDIA_URL.replace(/\/$/, '')}/media/${key}` : null;
 }

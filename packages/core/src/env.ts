@@ -14,7 +14,8 @@ const Env = z.object({
   S3_SECRET_KEY: z.string().default('echoes-secret'),
   S3_BUCKET: z.string().default('echoes'),
   PORT: z.coerce.number().default(3000),
-  PUBLIC_BASE_URL: z.string().default('http://localhost:3000'),
+  /** CDN/origin for media URLs; empty = relative `/media/...` paths resolved by the client against its API URL. */
+  PUBLIC_MEDIA_URL: z.string().default(''),
   ADMIN_TOKEN: z.string().default('change-me'),
   GEMINI_API_KEY: z.string().default(''),
   GEMINI_IMAGE_MODEL: z.string().default('gemini-nano-banana-2.1'),
