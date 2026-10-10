@@ -2,29 +2,41 @@ import { normalizeDeg } from '@echoes/shared';
 import * as Location from 'expo-location';
 import { DeviceMotion } from 'expo-sensors';
 import { useEffect, useRef } from 'react';
+import { Quaternion } from 'three';
+import { cameraFromDevice, OrientationFilter } from '@/lib/orientation';
 
 /**
- * Raw device pose kept in refs (60 Hz updates must not re-render React).
- * - rotation: W3C-style alpha/beta/gamma (radians) from DeviceMotion → camera quaternion in the GL scene
- * - compassDeg: true heading from expo-location (falls back to magnetic) → aligns the scene with the world
+ * Device pose kept in refs (60 Hz updates must not re-render React).
+ * - camera: fused (gyro + absolute) camera orientation in the scene frame, updated per sensor sample
+ * - compassDeg: true heading from expo-location (used on iOS, where DeviceMotion yaw has an arbitrary origin)
+ * - declinationDeg: true − magnetic north (Android's rotation vector is magnetic-north referenced)
  */
 export type DevicePose = {
-  rotation: { alpha: number; beta: number; gamma: number } | null;
-  screenOrientationDeg: number;
+  camera: Quaternion | null;
+  hasGyro: boolean;
   compassDeg: number | null;
-  compassAccuracy: number | null;
+  declinationDeg: number | null;
 };
 
 export function useDevicePose() {
-  const pose = useRef<DevicePose>({ rotation: null, screenOrientationDeg: 0, compassDeg: null, compassAccuracy: null });
+  const pose = useRef<DevicePose>({ camera: null, hasGyro: false, compassDeg: null, declinationDeg: null });
 
   useEffect(() => {
+    const filter = new OrientationFilter();
+    const camera = new Quaternion();
+
     DeviceMotion.setUpdateInterval(16);
     const motionSub = DeviceMotion.addListener((m) => {
-      if (m.rotation) {
-        pose.current.rotation = { alpha: m.rotation.alpha, beta: m.rotation.beta, gamma: m.rotation.gamma };
-        pose.current.screenOrientationDeg = m.orientation ?? 0;
-      }
+      if (!m.rotation) return;
+      const rate = m.rotationRate;
+      const device = filter.update(
+        m.rotation.alpha,
+        m.rotation.beta,
+        m.rotation.gamma,
+        rate ? { x: rate.alpha, y: rate.beta, z: rate.gamma, t: rate.timestamp } : null,
+      );
+      pose.current.camera = cameraFromDevice(camera, device, m.orientation ?? 0);
+      pose.current.hasGyro = !!rate;
     });
 
     let headingSub: Location.LocationSubscription | undefined;
@@ -33,9 +45,13 @@ export function useDevicePose() {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted' || cancelled) return;
       headingSub = await Location.watchHeadingAsync((h) => {
-        const deg = h.trueHeading >= 0 ? h.trueHeading : h.magHeading;
-        pose.current.compassDeg = normalizeDeg(deg);
-        pose.current.compassAccuracy = h.accuracy;
+        pose.current.compassDeg = normalizeDeg(h.trueHeading >= 0 ? h.trueHeading : h.magHeading);
+        if (h.trueHeading >= 0) {
+          let d = h.trueHeading - h.magHeading;
+          if (d > 180) d -= 360;
+          if (d < -180) d += 360;
+          pose.current.declinationDeg = d;
+        }
       });
     })();
 

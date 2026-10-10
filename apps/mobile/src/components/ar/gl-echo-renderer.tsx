@@ -1,9 +1,9 @@
 import { angleDiffDeg, normalizeDeg } from '@echoes/shared';
 import { Canvas, useFrame, useLoader, useThree } from '@react-three/fiber/native';
 import { Suspense, useEffect, useMemo, useRef } from 'react';
-import { StyleSheet } from 'react-native';
-import { CircleGeometry, Color, CylinderGeometry, DoubleSide, LinearFilter, type Group, NoColorSpace, PlaneGeometry, Quaternion, TextureLoader } from 'three';
-import { cameraHeadingDeg, deg2rad, deviceQuaternion, smoothAngleDeg } from '@/lib/orientation';
+import { Platform, StyleSheet } from 'react-native';
+import { CircleGeometry, Color, CylinderGeometry, DoubleSide, LinearFilter, type Group, NoColorSpace, PlaneGeometry, TextureLoader } from 'three';
+import { cameraHeadingDeg, deg2rad, smoothAngleDeg } from '@/lib/orientation';
 import { createEchoMaterial } from './echo-material';
 import type { EchoRendererProps } from './types';
 
@@ -26,21 +26,26 @@ function useRawTexture(url: string) {
 /** Drives the camera from the device pose and keeps the world group aligned with real north. */
 function Rig({ pose, alignment, manualYawDeg, photoHeadingDeg, world, onRelativeYaw }: Pick<EchoRendererProps, 'pose' | 'alignment' | 'manualYawDeg' | 'onRelativeYaw'> & { photoHeadingDeg: number; world: React.RefObject<Group | null> }) {
   const camera = useThree((s) => s.camera);
-  const target = useMemo(() => new Quaternion(), []);
-  const offsetDeg = useRef<number | null>(null); // true heading − device-frame heading
+  const offsetDeg = useRef<number | null>(null); // true heading − scene-frame heading
   const anchoredFor = useRef<number | null>(null);
   const lastReported = useRef(0);
 
   useFrame(() => {
     const p = pose.current;
-    if (!p?.rotation) return;
-    deviceQuaternion(target, p.rotation.alpha, p.rotation.beta, p.rotation.gamma, p.screenOrientationDeg);
-    camera.quaternion.slerp(target, 0.35); // light smoothing of sensor jitter
+    if (!p?.camera) return;
+    camera.quaternion.copy(p.camera); // already gyro-fused and smoothed in useDevicePose
 
-    const deviceHeading = cameraHeadingDeg(target);
+    const deviceHeading = cameraHeadingDeg(p.camera);
     if (deviceHeading !== null) {
-      if (alignment.kind === 'compass' && p.compassDeg !== null) {
-        offsetDeg.current = smoothAngleDeg(offsetDeg.current, p.compassDeg - deviceHeading, 0.05);
+      if (alignment.kind === 'compass') {
+        if (Platform.OS === 'android') {
+          // The rotation vector is already magnetic-north referenced; only correct for declination.
+          // (expo-location's heading follows the phone's top edge, which is meaningless when held upright.)
+          offsetDeg.current = smoothAngleDeg(offsetDeg.current, p.declinationDeg ?? 0, 0.05);
+        } else if (p.compassDeg !== null) {
+          // iOS: DeviceMotion yaw has an arbitrary origin – tie it to the compass, very slowly.
+          offsetDeg.current = smoothAngleDeg(offsetDeg.current, p.compassDeg - deviceHeading, 0.01);
+        }
       } else if (alignment.kind === 'remote' && anchoredFor.current !== alignment.anchorToken) {
         // Pretend the user is facing the photo's direction right now.
         offsetDeg.current = normalizeDeg(photoHeadingDeg - deviceHeading);
