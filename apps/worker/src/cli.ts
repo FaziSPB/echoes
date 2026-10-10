@@ -15,6 +15,7 @@ import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import {
   claimEcho,
+  closeEchoQueue,
   editImage,
   env,
   ensureBucket,
@@ -111,5 +112,5 @@ try {
   process.exitCode = 1;
 } finally {
   await sql.end({ timeout: 5 });
-  await getEchoQueue().close().catch(() => {});
+  await closeEchoQueue().catch(() => {});
 }

@@ -26,3 +26,10 @@ export function getEchoQueue(): Queue<EchoJobData> {
   });
   return echoQueue;
 }
+
+/** Close the queue only if this process opened it (CLI commands that never enqueue must still exit). */
+export async function closeEchoQueue(): Promise<void> {
+  if (!echoQueue) return;
+  await echoQueue.close();
+  echoQueue = undefined;
+}
