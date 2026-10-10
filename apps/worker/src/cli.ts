@@ -8,7 +8,7 @@
  *   pnpm cli photos:link
  *   pnpm cli seed:curated [--city Wrocław]
  *   pnpm cli echo:generate --photo <uuid>      (enqueue; --sync to run inline)
- *   pnpm cli echo:pregen [--sync]              (all verified photos)
+ *   pnpm cli echo:pregen [--sync]              (PAID: verified photos without any finished panorama)
  *   pnpm cli echo:recompose --photo <uuid>     (re-run compositing from saved frames, no GenAI cost)
  *   pnpm cli queue:drain                       (drop waiting jobs, e.g. before a pipeline bump)
  *   pnpm cli budget                            (paid image generations used today / daily limit)
@@ -86,7 +86,12 @@ const commands: Record<string, () => Promise<unknown>> = {
     await runEcho(echo.id, { recompose: true });
   },
   'echo:pregen': async () => {
-    const rows = await sql<{ id: string }[]>`select id from archival_photos where status = 'verified' and location is not null`;
+    // Paid: only photos without any finished panorama (an older pipeline version counts as done).
+    const rows = await sql<{ id: string }[]>`
+      select p.id from archival_photos p
+      where p.status = 'verified' and p.location is not null
+        and not exists (select 1 from echoes e where e.photo_id = p.id and e.status = 'done')`;
+    log.info({ count: rows.length, budget: await imageBudget() }, 'photos without a panorama');
     for (const r of rows) await generate(r.id);
   },
   'smoke:gemini': async () => {
