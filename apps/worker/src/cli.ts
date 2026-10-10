@@ -11,6 +11,7 @@
  *   pnpm cli echo:pregen [--sync]              (PAID: verified photos without any finished panorama)
  *   pnpm cli echo:recompose --photo <uuid>     (re-run compositing from saved frames, no GenAI cost)
  *   pnpm cli queue:drain                       (drop waiting jobs, e.g. before a pipeline bump)
+ *   pnpm cli walk:generate --photo <uuid> [--frames 3] [--length 10] [--subject-distance 28]  (PAID: N images)
  *   pnpm cli budget                            (paid image generations used today / daily limit)
  *   pnpm cli smoke:gemini
  */
@@ -23,6 +24,7 @@ import {
   editImage,
   env,
   ensureBucket,
+  generateWalk,
   geocodeMonuments,
   geoparseCandidates,
   generateText,
@@ -48,6 +50,9 @@ const { positionals, values } = parseArgs({
     limit: { type: 'string' },
     max: { type: 'string' },
     photo: { type: 'string' },
+    frames: { type: 'string' },
+    length: { type: 'string' },
+    'subject-distance': { type: 'string' },
     force: { type: 'boolean', default: false },
     sync: { type: 'boolean', default: false },
   },
@@ -84,6 +89,18 @@ const commands: Record<string, () => Promise<unknown>> = {
     const echo = await getEchoForPhoto(values.photo);
     if (!echo) throw new Error('no echo for this photo yet');
     await runEcho(echo.id, { recompose: true });
+  },
+  'walk:generate': async () => {
+    // PAID: one image per frame (default 3). Offline on purpose – the API never triggers it.
+    if (!values.photo) throw new Error('--photo <uuid> required');
+    log.info({ budget: await imageBudget() }, 'budget before walk');
+    const result = await generateWalk(values.photo, {
+      frames: num(values.frames),
+      lengthM: num(values.length),
+      subjectDistanceM: num(values['subject-distance']),
+    });
+    log.info({ budget: await imageBudget() }, 'budget after walk');
+    return result;
   },
   'echo:pregen': async () => {
     // Paid: only photos without any finished panorama (an older pipeline version counts as done).
